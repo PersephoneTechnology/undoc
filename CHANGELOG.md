@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking: a flag bit the library does not define is an error.** `undoc_to_markdown`
+  ignored bits outside `UNDOC_FLAG_*`; it now fails with `UNDOC_ERROR_INVALID_ARGUMENT`. So
+  does `UNDOC_FLAG_REFINE` in a build without the `refine` feature, which skipped the pass.
+  Published builds include the feature.
+
 ## [0.22.0] - 2026-10-10
 
 ### Added

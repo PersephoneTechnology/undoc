@@ -278,6 +278,19 @@ unparser_shared::export_string_getter!(
     {
         let document = &(*doc).inner;
 
+        // A bit this library does not define asks for something it cannot do.
+        const DEFINED: u32 = UNDOC_FLAG_FRONTMATTER
+            | UNDOC_FLAG_ESCAPE_SPECIAL
+            | UNDOC_FLAG_PARAGRAPH_SPACING
+            | UNDOC_FLAG_REFINE
+            | UNDOC_FLAG_NO_ESCAPE;
+        if flags & !DEFINED != 0 {
+            return Err(invalid_argument(format!(
+                "unknown flag bits {:#x} (this library defines {DEFINED:#x})",
+                flags & !DEFINED
+            )));
+        }
+
         let mut options = RenderOptions::new();
 
         if flags & UNDOC_FLAG_FRONTMATTER != 0 {
@@ -289,9 +302,17 @@ unparser_shared::export_string_getter!(
         if flags & UNDOC_FLAG_PARAGRAPH_SPACING != 0 {
             options.paragraph_spacing = true;
         }
-        #[cfg(feature = "refine")]
         if flags & UNDOC_FLAG_REFINE != 0 {
-            options = options.with_refine();
+            // A pass this build does not include is refused, not skipped.
+            #[cfg(feature = "refine")]
+            {
+                options = options.with_refine();
+            }
+            #[cfg(not(feature = "refine"))]
+            return Err(invalid_argument(
+                "UNDOC_FLAG_REFINE requires the `refine` feature, which this build of undoc \
+                 does not include",
+            ));
         }
 
         crate::render::to_markdown(document, &options).map_err(ffi_err)
@@ -791,6 +812,25 @@ mod tests {
             "flag values are part of the C ABI"
         );
 
+        unsafe { undoc_free_document(doc) };
+    }
+
+    /// A bit the library does not define is refused: a caller built against a newer header
+    /// asked for something this library cannot do, and an ignored bit renders as if it had.
+    #[test]
+    fn an_undefined_flag_bit_is_rejected() {
+        let data = hello_docx();
+        let doc = unsafe { undoc_parse_bytes(data.as_ptr(), data.len()) };
+        assert!(!doc.is_null());
+        for bit in [32, 1 << 31] {
+            assert!(unsafe { undoc_to_markdown(doc, UNDOC_FLAG_FRONTMATTER | bit) }.is_null());
+            assert_eq!(undoc_last_error_kind(), UNDOC_ERROR_INVALID_ARGUMENT);
+        }
+        let all = UNDOC_FLAG_FRONTMATTER
+            | UNDOC_FLAG_ESCAPE_SPECIAL
+            | UNDOC_FLAG_PARAGRAPH_SPACING
+            | UNDOC_FLAG_NO_ESCAPE;
+        take_string(unsafe { undoc_to_markdown(doc, all) });
         unsafe { undoc_free_document(doc) };
     }
 

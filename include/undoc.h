@@ -21,7 +21,9 @@ extern "C" {
 /* Opaque document handle */
 typedef struct UndocDocument UndocDocument;
 
-/* Flags for markdown rendering */
+/* Flags for markdown rendering. A bit not defined here fails with
+   UNDOC_ERROR_INVALID_ARGUMENT, as does UNDOC_FLAG_REFINE in a build without the
+   `refine` feature. */
 #define UNDOC_FLAG_FRONTMATTER      1  /* Include YAML frontmatter */
 #define UNDOC_FLAG_ESCAPE_SPECIAL   2  /* Accepted, no effect: escaping is the default (see NO_ESCAPE) */
 #define UNDOC_FLAG_PARAGRAPH_SPACING 4 /* Add blank lines between paragraphs */
