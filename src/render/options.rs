@@ -126,9 +126,6 @@ pub struct RenderOptions {
     /// Character for unordered list markers
     pub list_marker: char,
 
-    /// Use ATX-style headers (# instead of underlines)
-    pub use_atx_headers: bool,
-
     /// Add blank line between paragraphs
     pub paragraph_spacing: bool,
 
@@ -230,7 +227,6 @@ impl Default for RenderOptions {
             preserve_line_breaks: false,
             include_empty_paragraphs: false,
             list_marker: '-',
-            use_atx_headers: true,
             paragraph_spacing: true,
             escape_special_chars: true,
             cleanup: None,

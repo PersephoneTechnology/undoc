@@ -74,7 +74,9 @@ use unparser_shared::ffi::{self, invalid_argument, FfiError, LastErrorSlot};
 use crate::error::ErrorKind;
 use crate::model::Document;
 use crate::pptx::PptxParser;
-use crate::render::{JsonFormat, RenderOptions};
+use crate::render::{
+    CleanupOptions, JsonFormat, RenderOptions, RevisionHandling, SectionMarkerStyle, TableFallback,
+};
 
 // Thread-local storage for the last error message and its classification. Declared
 // here rather than in `unparser-shared` — see that crate's `ffi` module docs for why the slot
@@ -315,6 +317,228 @@ unparser_shared::export_string_getter!(
             ));
         }
 
+        crate::render::to_markdown(document, &options).map_err(ffi_err)
+    }
+);
+
+/// Deserializable mirror of [`RenderOptions`] for `undoc_to_markdown_with_options`.
+///
+/// The flag bitmask of `undoc_to_markdown` reaches four of `RenderOptions`' settings; this
+/// reaches every one a C-ABI caller can meaningfully set. Every field is optional and an
+/// absent one keeps `RenderOptions::default()`'s value; a field this type does not know is
+/// an error rather than something silently ignored.
+///
+/// # Schema
+///
+/// ```json
+/// {
+///   "image_path_prefix": string,
+///   "include_images": bool,
+///   "table_fallback": "markdown" | "html",
+///   "max_heading_level": number,
+///   "include_frontmatter": bool,
+///   "preserve_line_breaks": bool,
+///   "include_empty_paragraphs": bool,
+///   "list_marker": string,
+///   "paragraph_spacing": bool,
+///   "escape_special_chars": bool,
+///   "cleanup_preset": "none" | "minimal" | "standard" | "aggressive",
+///   "refine": bool,
+///   "revision_handling": "accept_all" | "reject_all" | "show_markup",
+///   "strip_redundant_emphasis_in_headings": bool,
+///   "emit_page_breaks": bool,
+///   "include_headers_footers": bool,
+///   "callout_blockquote": bool,
+///   "section_markers": "none" | "comment"
+/// }
+/// ```
+///
+/// `max_heading_level` is 1-6 and `list_marker` one character; anything else is an error.
+/// The cleanup pipeline is off by default. The schema is the same in every build:
+/// `"refine": true` in a build without the `refine` feature fails with a message naming
+/// the feature, and `"refine": false` is accepted everywhere.
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+struct FfiRenderOptions {
+    image_path_prefix: Option<String>,
+    include_images: Option<bool>,
+    table_fallback: Option<FfiTableFallback>,
+    max_heading_level: Option<u8>,
+    include_frontmatter: Option<bool>,
+    preserve_line_breaks: Option<bool>,
+    include_empty_paragraphs: Option<bool>,
+    list_marker: Option<String>,
+    paragraph_spacing: Option<bool>,
+    escape_special_chars: Option<bool>,
+    cleanup_preset: Option<FfiCleanupPreset>,
+    refine: Option<bool>,
+    revision_handling: Option<FfiRevisionHandling>,
+    strip_redundant_emphasis_in_headings: Option<bool>,
+    emit_page_breaks: Option<bool>,
+    include_headers_footers: Option<bool>,
+    callout_blockquote: Option<bool>,
+    section_markers: Option<FfiSectionMarkerStyle>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum FfiTableFallback {
+    Markdown,
+    Html,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum FfiCleanupPreset {
+    None,
+    Minimal,
+    Standard,
+    Aggressive,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum FfiRevisionHandling {
+    AcceptAll,
+    RejectAll,
+    ShowMarkup,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum FfiSectionMarkerStyle {
+    None,
+    Comment,
+}
+
+impl TryFrom<FfiRenderOptions> for RenderOptions {
+    type Error = String;
+
+    fn try_from(ffi: FfiRenderOptions) -> Result<Self, Self::Error> {
+        let mut options = RenderOptions::default();
+        if let Some(prefix) = ffi.image_path_prefix {
+            options.image_path_prefix = prefix;
+        }
+        if let Some(v) = ffi.include_images {
+            options.include_images = v;
+        }
+        if let Some(fallback) = ffi.table_fallback {
+            options.table_fallback = match fallback {
+                FfiTableFallback::Markdown => TableFallback::Markdown,
+                FfiTableFallback::Html => TableFallback::Html,
+            };
+        }
+        if let Some(level) = ffi.max_heading_level {
+            if !(1..=6).contains(&level) {
+                return Err(format!("max_heading_level must be 1-6, got {level}"));
+            }
+            options.max_heading_level = level;
+        }
+        if let Some(v) = ffi.include_frontmatter {
+            options.include_frontmatter = v;
+        }
+        if let Some(v) = ffi.preserve_line_breaks {
+            options.preserve_line_breaks = v;
+        }
+        if let Some(v) = ffi.include_empty_paragraphs {
+            options.include_empty_paragraphs = v;
+        }
+        if let Some(marker) = ffi.list_marker {
+            let mut chars = marker.chars();
+            options.list_marker = match (chars.next(), chars.next()) {
+                (Some(c), None) => c,
+                _ => return Err(format!("list_marker must be one character, got {marker:?}")),
+            };
+        }
+        if let Some(v) = ffi.paragraph_spacing {
+            options.paragraph_spacing = v;
+        }
+        if let Some(v) = ffi.escape_special_chars {
+            options.escape_special_chars = v;
+        }
+        if let Some(preset) = ffi.cleanup_preset {
+            options.cleanup = match preset {
+                FfiCleanupPreset::None => None,
+                FfiCleanupPreset::Minimal => Some(CleanupOptions::minimal()),
+                FfiCleanupPreset::Standard => Some(CleanupOptions::standard()),
+                FfiCleanupPreset::Aggressive => Some(CleanupOptions::aggressive()),
+            };
+        }
+        if ffi.refine == Some(true) {
+            #[cfg(feature = "refine")]
+            {
+                options = options.with_refine();
+            }
+            #[cfg(not(feature = "refine"))]
+            return Err(
+                "refine requires the `refine` feature, which this build of undoc does not \
+                 include"
+                    .into(),
+            );
+        }
+        if let Some(handling) = ffi.revision_handling {
+            options.revision_handling = match handling {
+                FfiRevisionHandling::AcceptAll => RevisionHandling::AcceptAll,
+                FfiRevisionHandling::RejectAll => RevisionHandling::RejectAll,
+                FfiRevisionHandling::ShowMarkup => RevisionHandling::ShowMarkup,
+            };
+        }
+        if let Some(v) = ffi.strip_redundant_emphasis_in_headings {
+            options.strip_redundant_emphasis_in_headings = v;
+        }
+        if let Some(v) = ffi.emit_page_breaks {
+            options.emit_page_breaks = v;
+        }
+        if let Some(v) = ffi.include_headers_footers {
+            options.include_headers_footers = v;
+        }
+        if let Some(v) = ffi.callout_blockquote {
+            options.callout_blockquote = v;
+        }
+        if let Some(style) = ffi.section_markers {
+            options.section_markers = match style {
+                FfiSectionMarkerStyle::None => SectionMarkerStyle::None,
+                FfiSectionMarkerStyle::Comment => SectionMarkerStyle::Comment,
+            };
+        }
+        Ok(options)
+    }
+}
+
+/// Resolve the `options_json` argument of `undoc_to_markdown_with_options`.
+/// A null pointer means "use defaults" — it is not an error.
+///
+/// # Safety
+/// `ptr` must be null or a valid null-terminated UTF-8 string.
+unsafe fn render_options_from_json(ptr: *const c_char) -> Result<RenderOptions, FfiError> {
+    if ptr.is_null() {
+        return Ok(RenderOptions::default());
+    }
+    let json = unparser_shared::with_c_str!(ptr)?;
+    let ffi = serde_json::from_str::<FfiRenderOptions>(json)
+        .map_err(|e| invalid_argument(format!("invalid options_json: {e}")))?;
+    RenderOptions::try_from(ffi).map_err(|e| invalid_argument(format!("invalid options_json: {e}")))
+}
+
+unparser_shared::export_string_getter!(
+    /// Convert a document to Markdown, with options.
+    ///
+    /// The counterpart to `undoc_to_markdown`'s flag bitmask, which reaches four settings.
+    /// `undoc_to_markdown` keeps working unchanged.
+    ///
+    /// # Safety
+    ///
+    /// - `doc` must be a valid document handle.
+    /// - `options_json` may be null (the defaults) or a valid null-terminated UTF-8 JSON
+    ///   string matching [`FfiRenderOptions`]'s schema (see that type's docs).
+    /// - Returns null on error, including malformed `options_json`, a field this library
+    ///   does not know, or a value it cannot honour (`UNDOC_ERROR_INVALID_ARGUMENT`).
+    /// - The returned string must be freed with `undoc_free_string`.
+    LAST_ERROR,
+    undoc_to_markdown_with_options(doc: UndocDocument, options_json: *const c_char),
+    {
+        let document = &(*doc).inner;
+        let options = render_options_from_json(options_json)?;
         crate::render::to_markdown(document, &options).map_err(ffi_err)
     }
 );
@@ -813,6 +1037,97 @@ mod tests {
         );
 
         unsafe { undoc_free_document(doc) };
+    }
+
+    /// Renders `data` through `undoc_to_markdown_with_options`; `Err` carries the error
+    /// kind and message.
+    fn render_with_options(data: &[u8], json: Option<&str>) -> Result<String, (c_int, String)> {
+        let doc = unsafe { undoc_parse_bytes(data.as_ptr(), data.len()) };
+        assert!(!doc.is_null());
+        let options = json.map(|j| CString::new(j).unwrap());
+        let ptr = unsafe {
+            undoc_to_markdown_with_options(
+                doc,
+                options.as_ref().map_or(ptr::null(), |c| c.as_ptr()),
+            )
+        };
+        let out = if ptr.is_null() {
+            let message = unsafe { CStr::from_ptr(undoc_last_error()) }
+                .to_str()
+                .unwrap()
+                .to_owned();
+            Err((undoc_last_error_kind(), message))
+        } else {
+            Ok(take_string(ptr))
+        };
+        unsafe { undoc_free_document(doc) };
+        out
+    }
+
+    /// No options and an empty object are the defaults, the same rendering as no flags.
+    #[test]
+    fn options_default_to_the_flagless_rendering() {
+        let data = hello_docx();
+        let doc = unsafe { undoc_parse_bytes(data.as_ptr(), data.len()) };
+        let flagless = take_string(unsafe { undoc_to_markdown(doc, 0) });
+        unsafe { undoc_free_document(doc) };
+        assert_eq!(render_with_options(&data, None).unwrap(), flagless);
+        assert_eq!(render_with_options(&data, Some("{}")).unwrap(), flagless);
+        assert_eq!(
+            render_with_options(&data, Some(r#"{"cleanup_preset":"none","refine":false}"#))
+                .unwrap(),
+            flagless
+        );
+    }
+
+    /// A setting the flags never reached: tracked changes rejected show the original text.
+    #[test]
+    fn revision_handling_reaches_the_renderer() {
+        let data = docx_with_body(
+            r#"<w:p><w:r><w:t>kept </w:t></w:r><w:ins w:id="1" w:author="a"><w:r><w:t>added</w:t></w:r></w:ins></w:p>"#,
+        );
+        let accepted = render_with_options(&data, None).unwrap();
+        assert!(accepted.contains("added"), "{accepted}");
+        let rejected =
+            render_with_options(&data, Some(r#"{"revision_handling":"reject_all"}"#)).unwrap();
+        assert!(
+            rejected.contains("kept") && !rejected.contains("added"),
+            "{rejected}"
+        );
+    }
+
+    #[test]
+    fn escaping_reaches_the_renderer() {
+        let data = docx_with("see [x](y) and a*b*c");
+        let plain = render_with_options(&data, Some(r#"{"escape_special_chars":false}"#)).unwrap();
+        assert!(plain.contains("see [x](y) and a*b*c"), "{plain}");
+    }
+
+    /// A misspelled key, or a value the library cannot honour, is refused by name rather
+    /// than rendering with the default.
+    #[test]
+    fn what_the_library_cannot_honour_is_rejected() {
+        let data = hello_docx();
+        for (json, named) in [
+            (r#"{"include_frontmater":true}"#, "include_frontmater"),
+            (r#"{"max_heading_level":9}"#, "max_heading_level"),
+            (r#"{"list_marker":"**"}"#, "list_marker"),
+            (r#"{"revision_handling":"keep"}"#, "keep"),
+            ("not json", "options_json"),
+        ] {
+            let (kind, message) = render_with_options(&data, Some(json)).unwrap_err();
+            assert_eq!(kind, UNDOC_ERROR_INVALID_ARGUMENT, "{json}");
+            assert!(message.contains(named), "{json}: {message}");
+        }
+    }
+
+    #[cfg(not(feature = "refine"))]
+    #[test]
+    fn refine_without_the_feature_names_the_feature() {
+        let (kind, message) =
+            render_with_options(&hello_docx(), Some(r#"{"refine":true}"#)).unwrap_err();
+        assert_eq!(kind, UNDOC_ERROR_INVALID_ARGUMENT);
+        assert!(message.contains("`refine` feature"), "{message}");
     }
 
     /// A bit the library does not define is refused: a caller built against a newer header

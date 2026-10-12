@@ -128,6 +128,33 @@ void undoc_free_document(UndocDocument* doc);
 char* undoc_to_markdown(const UndocDocument* doc, int flags);
 
 /**
+ * Convert a document to Markdown, with options.
+ *
+ * Reaches every rendering setting, where the flag bitmask reaches four. `options_json` is
+ * NULL (the defaults) or a JSON object whose fields are all optional:
+ *
+ *   { "image_path_prefix": string, "include_images": bool,
+ *     "table_fallback": "markdown" | "html", "max_heading_level": number (1-6),
+ *     "include_frontmatter": bool, "preserve_line_breaks": bool,
+ *     "include_empty_paragraphs": bool, "list_marker": string (one character),
+ *     "paragraph_spacing": bool, "escape_special_chars": bool,
+ *     "cleanup_preset": "none" | "minimal" | "standard" | "aggressive", "refine": bool,
+ *     "revision_handling": "accept_all" | "reject_all" | "show_markup",
+ *     "strip_redundant_emphasis_in_headings": bool, "emit_page_breaks": bool,
+ *     "include_headers_footers": bool, "callout_blockquote": bool,
+ *     "section_markers": "none" | "comment" }
+ *
+ * A field outside this schema, or a value the library cannot honour, fails with
+ * UNDOC_ERROR_INVALID_ARGUMENT -- so does "refine": true in a build without the `refine`
+ * feature.
+ *
+ * @param doc Document handle
+ * @param options_json UTF-8, null-terminated JSON, or NULL
+ * @return Markdown string or NULL on error. Must be freed with undoc_free_string().
+ */
+char* undoc_to_markdown_with_options(const UndocDocument* doc, const char* options_json);
+
+/**
  * Convert a document to plain text.
  *
  * @param doc Document handle

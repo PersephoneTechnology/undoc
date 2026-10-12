@@ -7,12 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Every rendering setting through the C ABI.** `undoc_to_markdown_with_options(doc,
+  options_json)` renders with a JSON object of options: `image_path_prefix`, `include_images`,
+  `table_fallback` (`"markdown"`, `"html"`), `max_heading_level`, `include_frontmatter`,
+  `preserve_line_breaks`, `include_empty_paragraphs`, `list_marker`, `paragraph_spacing`,
+  `escape_special_chars`, `cleanup_preset` (`"none"`, `"minimal"`, `"standard"`,
+  `"aggressive"`), `refine`, `revision_handling` (`"accept_all"`, `"reject_all"`,
+  `"show_markup"`), `strip_redundant_emphasis_in_headings`, `emit_page_breaks`,
+  `include_headers_footers`, `callout_blockquote` and `section_markers` (`"none"`,
+  `"comment"`). Every field is optional and an absent one keeps its default; NULL is the
+  defaults. Malformed JSON, a field the library does not know, or a value it cannot honour
+  fails with `UNDOC_ERROR_INVALID_ARGUMENT` instead of being ignored. The flag bitmask of
+  `undoc_to_markdown` reaches four settings and keeps working unchanged.
+
 ### Changed
 
 - **Breaking: a flag bit the library does not define is an error.** `undoc_to_markdown`
   ignored bits outside `UNDOC_FLAG_*`; it now fails with `UNDOC_ERROR_INVALID_ARGUMENT`. So
   does `UNDOC_FLAG_REFINE` in a build without the `refine` feature, which skipped the pass.
   Published builds include the feature.
+
+### Removed
+
+- **Breaking:** `RenderOptions::use_atx_headers`. Nothing read it: headings are always written
+  in ATX form (`#`), whatever it was set to.
 
 ## [0.22.0] - 2026-10-10
 
