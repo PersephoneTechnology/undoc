@@ -275,8 +275,7 @@ pub fn to_markdown(path: impl AsRef<Path>) -> Result<String> {
 /// use undoc::{to_markdown_with_options, render::RenderOptions};
 ///
 /// let options = RenderOptions::default()
-///     .with_frontmatter(true)
-///     .with_image_dir("assets");
+///     .with_frontmatter(true);
 ///
 /// let markdown = to_markdown_with_options("document.docx", &options)?;
 /// # Ok::<(), undoc::Error>(())

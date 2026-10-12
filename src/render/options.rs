@@ -1,7 +1,5 @@
 //! Rendering options configuration.
 
-use std::path::PathBuf;
-
 use super::heading_analyzer::HeadingConfig;
 
 /// How to render complex tables.
@@ -101,9 +99,6 @@ impl CleanupOptions {
 /// Options for rendering documents.
 #[derive(Debug, Clone)]
 pub struct RenderOptions {
-    /// Directory to save extracted images
-    pub image_dir: Option<PathBuf>,
-
     /// Prefix for image paths in markdown (e.g., "assets/")
     pub image_path_prefix: String,
 
@@ -218,7 +213,6 @@ pub enum SectionMarkerStyle {
 impl Default for RenderOptions {
     fn default() -> Self {
         Self {
-            image_dir: None,
             image_path_prefix: String::new(),
             include_images: true,
             table_fallback: TableFallback::Markdown,
@@ -247,12 +241,6 @@ impl RenderOptions {
     /// Create new render options.
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Set the image output directory.
-    pub fn with_image_dir(mut self, dir: impl Into<PathBuf>) -> Self {
-        self.image_dir = Some(dir.into());
-        self
     }
 
     /// Set the image path prefix for markdown references.
@@ -390,7 +378,6 @@ mod tests {
     #[test]
     fn test_default_options() {
         let opts = RenderOptions::default();
-        assert!(opts.image_dir.is_none());
         assert!(!opts.include_frontmatter);
         assert_eq!(opts.table_fallback, TableFallback::Markdown);
         // Default max_heading_level is 4 (not 6) because Office documents
@@ -400,12 +387,8 @@ mod tests {
 
     #[test]
     fn test_builder_pattern() {
-        let opts = RenderOptions::new()
-            .with_image_dir("assets")
-            .with_frontmatter(true)
-            .with_cleanup();
+        let opts = RenderOptions::new().with_frontmatter(true).with_cleanup();
 
-        assert_eq!(opts.image_dir, Some(PathBuf::from("assets")));
         assert!(opts.include_frontmatter);
         assert!(opts.cleanup.is_some());
     }

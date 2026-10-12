@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Removed
+
+- **Breaking: `RenderOptions::image_dir` and `RenderOptions::with_image_dir`.** Documented as the
+  directory extracted images are saved to, the setting was accepted and never acted on:
+  rendering writes no files, so a caller following the crate's own example got Markdown whose
+  image links pointed at nothing. Extracted images are `Document::resources`, for the caller to
+  write where it wants.
+
 ## [0.23.0] - 2026-10-12
 
 ### Added
