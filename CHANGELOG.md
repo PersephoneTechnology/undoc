@@ -21,6 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   defaults. Malformed JSON, a field the library does not know, or a value it cannot honour
   fails with `UNDOC_ERROR_INVALID_ARGUMENT` instead of being ignored. The flag bitmask of
   `undoc_to_markdown` reaches four settings and keeps working unchanged.
+- The bindings render through it. Python `Undoc.to_markdown` gains keyword arguments for every
+  setting (`image_path_prefix`, `include_images`, `table_fallback`, `max_heading_level`,
+  `preserve_line_breaks`, `include_empty_paragraphs`, `list_marker`, `cleanup`,
+  `revision_handling`, `strip_redundant_emphasis_in_headings`, `emit_page_breaks`,
+  `include_headers_footers`, `callout_blockquote`, `section_markers`). .NET `MarkdownOptions`
+  gains the matching properties, with the enums `TableFallback`, `CleanupPreset`,
+  `RevisionHandling` and `SectionMarkerStyle`. A value the library cannot honour raises
+  `UndocError` / throws `UndocException` with the invalid-argument kind.
 
 ### Changed
 
@@ -28,6 +36,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ignored bits outside `UNDOC_FLAG_*`; it now fails with `UNDOC_ERROR_INVALID_ARGUMENT`. So
   does `UNDOC_FLAG_REFINE` in a build without the `refine` feature, which skipped the pass.
   Published builds include the feature.
+
+### Fixed
+
+- **`paragraph_spacing=False` (Python) and `ParagraphSpacing = false` (.NET) turn the blank
+  line between paragraphs off.** The library spaces paragraphs by default and the flag could
+  only turn it on, so `False` was ignored. Both now default to `True`, the library's default,
+  and `False` reaches the renderer.
 
 ### Removed
 
