@@ -156,6 +156,14 @@ undoc update
 undoc update --force
 ```
 
+**Network access.** Apart from `undoc update`, the only request the CLI makes on its own is the
+update notice: at most once a day it asks the GitHub releases API
+(`api.github.com/repos/iyulab/undoc/releases`) whether a newer version exists, and caches the
+answer in your user cache directory, so the other runs make no request and wait for nothing.
+It is not made at all when `--no-update-check` is passed, when `UNDOC_NO_UPDATE_CHECK=1` (or
+`UNPARSER_NO_UPDATE_CHECK=1`, for every tool of the family) is set, in CI (`CI` set), or when
+stderr is not a terminal (scripts, batch jobs, redirected runs).
+
 ### Install via Cargo
 
 If you have Rust installed:

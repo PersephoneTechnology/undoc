@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   image links pointed at nothing. Extracted images are `Document::resources`, for the caller to
   write where it wants.
 
+### Changed
+
+- **The CLI checks for a newer release at most once a day, and can be told not to.** Every
+  command used to ask GitHub and wait up to half a second for the answer, and nothing turned it
+  off. The answer is now cached for a day, so the other runs make no request and wait for
+  nothing, and no check is made with `--no-update-check`, with `UNDOC_NO_UPDATE_CHECK=1`
+  or `UNPARSER_NO_UPDATE_CHECK=1` set, in CI (`CI` set), or when stderr is not a terminal.
+  The README states what the CLI sends over the network.
+
 ## [0.23.0] - 2026-10-12
 
 ### Added

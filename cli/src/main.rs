@@ -2,7 +2,6 @@
 //!
 //! A command-line tool for extracting content from DOCX, XLSX, and PPTX files.
 
-mod update;
 mod writer;
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -12,6 +11,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use undoc::render::{CleanupPreset, HeadingConfig, JsonFormat, RenderOptions, TableFallback};
+use unparser_shared::cli_update::{self, Tool, UpdateCheck};
 use writer::{MultiFormatWriter, OutputFormat, StreamingWriter};
 
 /// The subdirectory `convert` extracts images into, relative to its output directory.
@@ -25,6 +25,15 @@ const IMAGES_SUBDIR: &str = "images";
 const MEDIA_SUBDIR: &str = "media";
 
 /// Microsoft Office document extraction to Markdown, text, and JSON
+/// This tool, for the update notice and the `update` command.
+const TOOL: Tool = Tool {
+    repo_owner: "iyulab",
+    repo_name: "undoc",
+    bin_name: "undoc",
+    crate_name: "undoc-cli",
+    current_version: env!("CARGO_PKG_VERSION"),
+};
+
 #[derive(Parser)]
 #[command(
     name = "undoc",
@@ -39,6 +48,12 @@ const MEDIA_SUBDIR: &str = "media";
                   undoc md <file>           Convert to Markdown only"
 )]
 struct Cli {
+    /// Do not check GitHub for a newer release (also: `UNDOC_NO_UPDATE_CHECK=1`, or
+    /// `UNPARSER_NO_UPDATE_CHECK=1` for every tool of the family). No check is made in CI or
+    /// when stderr is not a terminal either.
+    #[arg(long, global = true)]
+    no_update_check: bool,
+
     #[command(subcommand)]
     command: Option<Commands>,
 
@@ -309,8 +324,8 @@ fn main() {
     let cli = Cli::parse();
 
     // Start background update check (except for update/version commands)
-    let update_rx = if should_check_update(&cli) {
-        Some(update::check_update_async())
+    let update_check = if should_check_update(&cli) {
+        UpdateCheck::start(TOOL, cli.no_update_check)
     } else {
         None
     };
@@ -319,10 +334,8 @@ fn main() {
     let result = run(cli);
 
     // Check for update result and show notification if available
-    if let Some(rx) = update_rx {
-        if let Some(update_result) = update::try_get_update_result(&rx) {
-            update::print_update_notification(&update_result);
-        }
+    if let Some(check) = update_check {
+        check.finish();
     }
 
     // Handle errors
@@ -615,7 +628,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         }
 
         Commands::Update { check, force } => {
-            if let Err(e) = update::run_update(check, force) {
+            if let Err(e) = cli_update::run_update(&TOOL, check, force) {
                 eprintln!("{}: {}", "Error".red().bold(), e);
                 std::process::exit(1);
             }
@@ -644,8 +657,6 @@ struct ConvertParams<'a> {
 }
 
 fn run_convert(p: ConvertParams<'_>) -> Result<(), Box<dyn std::error::Error>> {
-    let update_rx = update::check_update_async();
-
     let pb = if p.quiet {
         ProgressBar::hidden()
     } else {
@@ -740,10 +751,6 @@ fn run_convert(p: ConvertParams<'_>) -> Result<(), Box<dyn std::error::Error>> {
             image_count,
             media_count
         );
-    }
-
-    if let Some(result) = update::try_get_update_result(&update_rx) {
-        update::print_update_notification(&result);
     }
 
     Ok(())
