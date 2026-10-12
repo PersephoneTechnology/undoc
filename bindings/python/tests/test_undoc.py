@@ -16,12 +16,13 @@ NATIVE_IMPORT_ERROR = None
 
 try:
     import undoc.undoc as undoc_module
-    from undoc import Undoc, UndocError, parse_file, parse_bytes, version
+    from undoc import ErrorKind, Undoc, UndocError, parse_file, parse_bytes, version
 
     LIBRARY_AVAILABLE = True
 except OSError as exc:
     undoc_module = None
     Undoc = None
+    ErrorKind = None
     UndocError = Exception
     parse_file = None
     parse_bytes = None
@@ -312,7 +313,7 @@ class FakeStringLibrary:
     def undoc_free_document(self, _handle):
         return None
 
-    def undoc_to_markdown(self, _handle, _flags):
+    def undoc_to_markdown_with_options(self, _handle, _options):
         return self._alloc("Привет из Markdown")
 
     def undoc_plain_text(self, _handle):
@@ -390,6 +391,30 @@ class TestConversion:
     def test_to_markdown_with_refine(self, sample_docx):
         # Refining reshapes markdown; it must not drop the document's text.
         assert SAMPLE_TEXT in sample_docx.to_markdown(refine=True)
+
+    def test_revision_handling_reaches_the_renderer(self):
+        # A setting the flag bitmask never reached: rejected changes show the
+        # original text.
+        doc = parse_bytes(create_docx_with_body_bytes(
+            '<w:p><w:r><w:t xml:space="preserve">kept </w:t></w:r>'
+            '<w:ins w:id="1" w:author="a"><w:r><w:t>added</w:t></w:r></w:ins></w:p>'
+        ))
+        assert "added" in doc.to_markdown()
+        rejected = doc.to_markdown(revision_handling="reject_all")
+        assert "kept" in rejected and "added" not in rejected
+
+    def test_paragraph_spacing_false_reaches_the_renderer(self):
+        # The library spaces paragraphs by default; False must turn that off,
+        # not be ignored.
+        doc = parse_bytes(create_docx_with_body_bytes(
+            "<w:p><w:r><w:t>one</w:t></w:r></w:p><w:p><w:r><w:t>two</w:t></w:r></w:p>"
+        ))
+        assert doc.to_markdown() != doc.to_markdown(paragraph_spacing=False)
+
+    def test_a_value_the_library_cannot_honour_raises_invalid_argument(self, sample_docx):
+        with pytest.raises(UndocError) as raised:
+            sample_docx.to_markdown(max_heading_level=9)
+        assert raised.value.kind == ErrorKind.INVALID_ARGUMENT
 
     def test_to_text(self, sample_docx):
         assert SAMPLE_TEXT in sample_docx.to_text()

@@ -7,19 +7,44 @@ namespace Undoc.Tests;
 
 public class BasicTests
 {
+    /// <summary>
+    /// The defaults are the library's: options left alone render what no options render.
+    /// </summary>
     [Fact]
-    public void MarkdownOptions_HasSensibleDefaults()
+    public void MarkdownOptions_DefaultsAreTheLibrarys()
     {
-        var opts = new MarkdownOptions();
-        Assert.False(opts.IncludeFrontmatter);
-        Assert.False(opts.Refine);
+        NativeTestSupport.EnsureNativeLibraryPrepared();
+        using var doc = UndocDocument.ParseBytes(NativeTestSupport.CreateDocxBytes(
+            "<w:p><w:r><w:t>one</w:t></w:r></w:p><w:p><w:r><w:t>two</w:t></w:r></w:p>", ""));
+        Assert.Equal(doc.ToMarkdown(), doc.ToMarkdown(new MarkdownOptions()));
+        Assert.NotEqual(doc.ToMarkdown(), doc.ToMarkdown(new MarkdownOptions { ParagraphSpacing = false }));
+    }
+
+    /// <summary>
+    /// A setting the flag bitmask never reached: rejected changes show the original text.
+    /// </summary>
+    [Fact]
+    public void MarkdownOptions_RevisionHandlingReachesTheRenderer()
+    {
+        NativeTestSupport.EnsureNativeLibraryPrepared();
+        using var doc = UndocDocument.ParseBytes(NativeTestSupport.CreateDocxBytes(
+            """<w:p><w:r><w:t xml:space="preserve">kept </w:t></w:r><w:ins w:id="1" w:author="a"><w:r><w:t>added</w:t></w:r></w:ins></w:p>""",
+            ""));
+        Assert.Contains("added", doc.ToMarkdown());
+        var rejected = doc.ToMarkdown(new MarkdownOptions { RevisionHandling = RevisionHandling.RejectAll });
+        Assert.Contains("kept", rejected);
+        Assert.DoesNotContain("added", rejected);
     }
 
     [Fact]
-    public void MarkdownOptions_RefineIsSettable()
+    public void MarkdownOptions_AValueTheLibraryCannotHonourThrowsInvalidArgument()
     {
-        var opts = new MarkdownOptions { Refine = true };
-        Assert.True(opts.Refine);
+        NativeTestSupport.EnsureNativeLibraryPrepared();
+        using var doc = UndocDocument.ParseBytes(NativeTestSupport.CreateDocxBytes(
+            "<w:p><w:r><w:t>one</w:t></w:r></w:p>", ""));
+        var error = Assert.Throws<UndocException>(
+            () => doc.ToMarkdown(new MarkdownOptions { MaxHeadingLevel = 9 }));
+        Assert.Equal(UndocErrorKind.InvalidArgument, error.Kind);
     }
 }
 

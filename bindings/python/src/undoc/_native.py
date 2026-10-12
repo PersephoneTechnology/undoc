@@ -140,8 +140,8 @@ _lib.undoc_parse_bytes.restype = ctypes.c_void_p
 _lib.undoc_free_document.argtypes = [ctypes.c_void_p]
 _lib.undoc_free_document.restype = None
 
-_lib.undoc_to_markdown.argtypes = [ctypes.c_void_p, ctypes.c_uint]
-_lib.undoc_to_markdown.restype = ctypes.c_void_p
+_lib.undoc_to_markdown_with_options.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+_lib.undoc_to_markdown_with_options.restype = ctypes.c_void_p
 
 _lib.undoc_to_text.argtypes = [ctypes.c_void_p]
 _lib.undoc_to_text.restype = ctypes.c_void_p
@@ -196,13 +196,6 @@ _lib.undoc_render_section.argtypes = [
 _lib.undoc_render_section.restype = ctypes.POINTER(ctypes.c_uint8)
 
 # Export constants
-UNDOC_FLAG_FRONTMATTER = 1
-# Accepted, no effect: escaping is the default. Turn it off with UNDOC_FLAG_NO_ESCAPE.
-UNDOC_FLAG_ESCAPE_SPECIAL = 2
-UNDOC_FLAG_PARAGRAPH_SPACING = 4
-UNDOC_FLAG_REFINE = 8
-UNDOC_FLAG_NO_ESCAPE = 16
-
 UNDOC_JSON_PRETTY = 0
 UNDOC_JSON_COMPACT = 1
 

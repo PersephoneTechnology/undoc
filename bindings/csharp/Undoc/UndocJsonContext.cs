@@ -11,6 +11,7 @@ namespace Undoc;
 [JsonSerializable(typeof(TableText[]))]
 [JsonSerializable(typeof(RenderInfoPayload))]
 [JsonSerializable(typeof(RenderOptionsPayload))]
+[JsonSerializable(typeof(RenderOptionsJson))]
 internal sealed partial class UndocJsonContext : JsonSerializerContext
 {
 }

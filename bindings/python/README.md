@@ -171,7 +171,7 @@ itself, and never `ErrorKind.NONE` (which means success).
 
 #### Conversion Methods
 
-- `to_markdown(frontmatter=False, escape_special=True, paragraph_spacing=False, refine=False)` - Convert to Markdown (`escape_special=False` writes text without escaping Markdown special characters)
+- `to_markdown(frontmatter=False, escape_special=True, paragraph_spacing=True, refine=False, *, ...)` - Convert to Markdown (`escape_special=False` writes text without escaping Markdown special characters). Keyword-only, all defaulting to the library's own values: `image_path_prefix`, `include_images`, `table_fallback` (`"markdown"`, `"html"`), `max_heading_level` (1-6), `preserve_line_breaks`, `include_empty_paragraphs`, `list_marker`, `cleanup` (`None`, `"minimal"`, `"standard"`, `"aggressive"`), `revision_handling` (`"accept_all"`, `"reject_all"`, `"show_markup"`), `strip_redundant_emphasis_in_headings`, `emit_page_breaks`, `include_headers_footers`, `callout_blockquote`, `section_markers` (`"none"`, `"comment"`). A value the library cannot honour raises `UndocError` with `ErrorKind.INVALID_ARGUMENT`.
 - `to_text()` - Convert to plain text
 - `to_json(compact=False)` - Convert to JSON
 - `plain_text()` - Get plain text (fast extraction)

@@ -9,10 +9,6 @@ from typing import Dict, List, Optional, Sequence, Union
 
 from ._native import (
     get_library,
-    UNDOC_FLAG_FRONTMATTER,
-    UNDOC_FLAG_NO_ESCAPE,
-    UNDOC_FLAG_PARAGRAPH_SPACING,
-    UNDOC_FLAG_REFINE,
     UNDOC_JSON_PRETTY,
     UNDOC_JSON_COMPACT,
 )
@@ -231,19 +227,59 @@ class Undoc:
         self,
         frontmatter: bool = False,
         escape_special: bool = True,
-        paragraph_spacing: bool = False,
+        paragraph_spacing: bool = True,
         refine: bool = False,
+        *,
+        image_path_prefix: str = "",
+        include_images: bool = True,
+        table_fallback: str = "markdown",
+        max_heading_level: int = 4,
+        preserve_line_breaks: bool = False,
+        include_empty_paragraphs: bool = False,
+        list_marker: str = "-",
+        cleanup: Optional[str] = None,
+        revision_handling: str = "accept_all",
+        strip_redundant_emphasis_in_headings: bool = True,
+        emit_page_breaks: bool = False,
+        include_headers_footers: bool = False,
+        callout_blockquote: bool = False,
+        section_markers: str = "none",
     ) -> str:
         """Convert document to Markdown.
+
+        Every argument reaches the native library, and the defaults are the
+        library's own. A value it cannot honour (a ``max_heading_level``
+        outside 1-6, a ``list_marker`` that is not one character, an unknown
+        ``table_fallback``) raises :class:`UndocError` with kind
+        :attr:`ErrorKind.INVALID_ARGUMENT`.
 
         Args:
             frontmatter: Include YAML frontmatter with metadata
             escape_special: Escape special Markdown characters, so text that
                 reads as Markdown syntax stays text (default, as in Rust)
-            paragraph_spacing: Add extra spacing between paragraphs
+            paragraph_spacing: A blank line after each paragraph (default)
             refine: Apply the lossless, idempotent markdown shape-refinement
                 pass (table shape, ordered-list numbering, link/image paths,
                 frontmatter, section anchors) after rendering
+            image_path_prefix: Prefix of the image paths written
+            include_images: Write ``![alt](path)`` references for the images
+            table_fallback: A table with merged cells as ``"markdown"`` (merges
+                flattened) or ``"html"`` (rowspan/colspan kept)
+            max_heading_level: The deepest heading level written (1-6)
+            preserve_line_breaks: Keep line breaks inside paragraphs
+            include_empty_paragraphs: Keep empty paragraphs as blank lines
+            list_marker: The character that marks an unordered list item
+            cleanup: ``None`` for no cleanup (default), or ``"minimal"``,
+                ``"standard"`` or ``"aggressive"``
+            revision_handling: Tracked changes: ``"accept_all"`` (default),
+                ``"reject_all"`` or ``"show_markup"``
+            strip_redundant_emphasis_in_headings: Drop bold/italic that covers
+                a whole heading or header cell
+            emit_page_breaks: Write ``---`` for hard page breaks
+            include_headers_footers: Render DOCX headers and footers
+            callout_blockquote: A 1x1 table of emphasized text as a blockquote
+            section_markers: ``"none"`` or ``"comment"`` (a comment before
+                each slide or sheet)
 
         Returns:
             Markdown string
@@ -251,17 +287,28 @@ class Undoc:
         Raises:
             UndocError: If conversion fails
         """
-        flags = 0
-        if frontmatter:
-            flags |= UNDOC_FLAG_FRONTMATTER
-        if not escape_special:
-            flags |= UNDOC_FLAG_NO_ESCAPE
-        if paragraph_spacing:
-            flags |= UNDOC_FLAG_PARAGRAPH_SPACING
-        if refine:
-            flags |= UNDOC_FLAG_REFINE
+        options = json.dumps({
+            "include_frontmatter": frontmatter,
+            "escape_special_chars": escape_special,
+            "paragraph_spacing": paragraph_spacing,
+            "refine": refine,
+            "image_path_prefix": image_path_prefix,
+            "include_images": include_images,
+            "table_fallback": table_fallback,
+            "max_heading_level": max_heading_level,
+            "preserve_line_breaks": preserve_line_breaks,
+            "include_empty_paragraphs": include_empty_paragraphs,
+            "list_marker": list_marker,
+            "cleanup_preset": cleanup if cleanup is not None else "none",
+            "revision_handling": revision_handling,
+            "strip_redundant_emphasis_in_headings": strip_redundant_emphasis_in_headings,
+            "emit_page_breaks": emit_page_breaks,
+            "include_headers_footers": include_headers_footers,
+            "callout_blockquote": callout_blockquote,
+            "section_markers": section_markers,
+        }).encode("utf-8")
 
-        result = self._lib.undoc_to_markdown(self._handle, flags)
+        result = self._lib.undoc_to_markdown_with_options(self._handle, options)
         if not result:
             raise _native_failure("Failed to convert to markdown")
 

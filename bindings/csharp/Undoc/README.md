@@ -210,9 +210,22 @@ unrecognised value degrades to a generic failure rather than going unhandled. `K
 
 ### MarkdownOptions Class
 
+Every property reaches the native library and defaults to the library's own value:
+
 - `IncludeFrontmatter` - Include YAML frontmatter
-- `EscapeSpecialChars` - Escape special characters
-- `ParagraphSpacing` - Add extra paragraph spacing
+- `EscapeSpecialChars` - Escape special characters (default on)
+- `ParagraphSpacing` - A blank line after each paragraph (default on)
+- `Refine` - The lossless shape-refinement pass
+- `ImagePathPrefix`, `IncludeImages` - Image references
+- `TableFallback` - `Markdown` (merges flattened) or `Html` (rowspan/colspan kept)
+- `MaxHeadingLevel` - 1-6 (default 4)
+- `PreserveLineBreaks`, `IncludeEmptyParagraphs`, `ListMarker`
+- `Cleanup` - a `CleanupPreset`, or `null` for none (default)
+- `RevisionHandling` - `AcceptAll` (default), `RejectAll`, `ShowMarkup`
+- `StripRedundantEmphasisInHeadings`, `EmitPageBreaks`, `IncludeHeadersFooters`, `CalloutBlockquote`
+- `SectionMarkers` - `None` or `Comment` (a comment before each slide or sheet)
+
+A value the library cannot honour throws `UndocException` with `UndocErrorKind.InvalidArgument`.
 
 ## License
 

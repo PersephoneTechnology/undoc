@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Undoc;
 
@@ -53,8 +54,68 @@ public class UndocException : Exception
 }
 
 /// <summary>
-/// Options for markdown rendering.
+/// How a table with merged cells, which Markdown cannot express, is written.
 /// </summary>
+public enum TableFallback
+{
+    /// <summary>A Markdown table with the merges flattened (the default).</summary>
+    Markdown,
+
+    /// <summary>An HTML table that keeps rowspan and colspan.</summary>
+    Html,
+}
+
+/// <summary>
+/// The configurations of the cleanup pipeline run over the rendered Markdown.
+/// </summary>
+public enum CleanupPreset
+{
+    /// <summary>Normalization only.</summary>
+    Minimal,
+
+    /// <summary>Every stage.</summary>
+    Standard,
+
+    /// <summary>Every stage, removing headers and footers more eagerly.</summary>
+    Aggressive,
+}
+
+/// <summary>
+/// How tracked changes (insertions and deletions) are rendered.
+/// </summary>
+public enum RevisionHandling
+{
+    /// <summary>The final text, every change accepted (the default).</summary>
+    AcceptAll,
+
+    /// <summary>The original text, every change rejected.</summary>
+    RejectAll,
+
+    /// <summary>Insertions and deletions both shown, with markup.</summary>
+    ShowMarkup,
+}
+
+/// <summary>
+/// Markers written at slide and sheet boundaries.
+/// </summary>
+public enum SectionMarkerStyle
+{
+    /// <summary>No markers (the default).</summary>
+    None,
+
+    /// <summary>A <c>&lt;!-- slide N: Name --&gt;</c> / <c>&lt;!-- sheet N: Name --&gt;</c> comment.</summary>
+    Comment,
+}
+
+/// <summary>
+/// Options for markdown rendering. Every property reaches the native library, and the
+/// defaults are the library's own.
+/// </summary>
+/// <remarks>
+/// A value the library cannot honour — a <see cref="MaxHeadingLevel"/> outside 1-6, a
+/// <see cref="ListMarker"/> it cannot write — throws <see cref="UndocException"/> with
+/// <see cref="UndocErrorKind.InvalidArgument"/>.
+/// </remarks>
 public class MarkdownOptions
 {
     /// <summary>
@@ -69,9 +130,9 @@ public class MarkdownOptions
     public bool EscapeSpecialChars { get; set; } = true;
 
     /// <summary>
-    /// Add extra spacing between paragraphs.
+    /// A blank line after each paragraph. Default: <see langword="true"/>.
     /// </summary>
-    public bool ParagraphSpacing { get; set; } = false;
+    public bool ParagraphSpacing { get; set; } = true;
 
     /// <summary>
     /// Apply the lossless, idempotent markdown shape-refinement pass (table
@@ -80,16 +141,120 @@ public class MarkdownOptions
     /// </summary>
     public bool Refine { get; set; } = false;
 
-    internal uint ToFlags()
-    {
-        uint flags = 0;
-        if (IncludeFrontmatter) flags |= NativeMethods.UNDOC_FLAG_FRONTMATTER;
-        if (!EscapeSpecialChars) flags |= NativeMethods.UNDOC_FLAG_NO_ESCAPE;
-        if (ParagraphSpacing) flags |= NativeMethods.UNDOC_FLAG_PARAGRAPH_SPACING;
-        if (Refine) flags |= NativeMethods.UNDOC_FLAG_REFINE;
-        return flags;
-    }
+    /// <summary>Prefix of the image paths written. Default: empty.</summary>
+    public string ImagePathPrefix { get; set; } = "";
+
+    /// <summary>Write <c>![alt](path)</c> references for the images. Default: <see langword="true"/>.</summary>
+    public bool IncludeImages { get; set; } = true;
+
+    /// <summary>How a table with merged cells is written. Default: <see cref="Undoc.TableFallback.Markdown"/>.</summary>
+    public TableFallback TableFallback { get; set; } = TableFallback.Markdown;
+
+    /// <summary>The deepest heading level written (1-6); deeper headings take this level. Default: 4.</summary>
+    public int MaxHeadingLevel { get; set; } = 4;
+
+    /// <summary>Keep line breaks inside paragraphs. Default: <see langword="false"/>.</summary>
+    public bool PreserveLineBreaks { get; set; } = false;
+
+    /// <summary>Keep empty paragraphs as blank lines. Default: <see langword="false"/>.</summary>
+    public bool IncludeEmptyParagraphs { get; set; } = false;
+
+    /// <summary>The character that marks an unordered list item. Default: <c>'-'</c>.</summary>
+    public char ListMarker { get; set; } = '-';
+
+    /// <summary>The cleanup run over the output, or <see langword="null"/> for none (the default).</summary>
+    public CleanupPreset? Cleanup { get; set; }
+
+    /// <summary>How tracked changes are rendered. Default: <see cref="Undoc.RevisionHandling.AcceptAll"/>.</summary>
+    public RevisionHandling RevisionHandling { get; set; } = RevisionHandling.AcceptAll;
+
+    /// <summary>Drop bold or italic that covers a whole heading or header cell. Default: <see langword="true"/>.</summary>
+    public bool StripRedundantEmphasisInHeadings { get; set; } = true;
+
+    /// <summary>Write <c>---</c> for hard page breaks. Default: <see langword="false"/>.</summary>
+    public bool EmitPageBreaks { get; set; } = false;
+
+    /// <summary>Render DOCX section headers and footers. Default: <see langword="false"/>.</summary>
+    public bool IncludeHeadersFooters { get; set; } = false;
+
+    /// <summary>A 1×1 table of emphasized text as a blockquote. Default: <see langword="false"/>.</summary>
+    public bool CalloutBlockquote { get; set; } = false;
+
+    /// <summary>Markers at slide and sheet boundaries. Default: <see cref="SectionMarkerStyle.None"/>.</summary>
+    public SectionMarkerStyle SectionMarkers { get; set; } = SectionMarkerStyle.None;
+
+    /// <summary>
+    /// The options as <c>undoc_to_markdown_with_options</c> reads them — every property.
+    /// </summary>
+    internal string ToJson() =>
+        JsonSerializer.Serialize(
+            new RenderOptionsJson(
+                IncludeFrontmatter,
+                EscapeSpecialChars,
+                ParagraphSpacing,
+                Refine,
+                ImagePathPrefix,
+                IncludeImages,
+                TableFallback switch
+                {
+                    TableFallback.Markdown => "markdown",
+                    TableFallback.Html => "html",
+                    _ => throw new ArgumentOutOfRangeException(nameof(TableFallback)),
+                },
+                MaxHeadingLevel,
+                PreserveLineBreaks,
+                IncludeEmptyParagraphs,
+                ListMarker.ToString(),
+                Cleanup switch
+                {
+                    null => "none",
+                    CleanupPreset.Minimal => "minimal",
+                    CleanupPreset.Standard => "standard",
+                    CleanupPreset.Aggressive => "aggressive",
+                    _ => throw new ArgumentOutOfRangeException(nameof(Cleanup)),
+                },
+                RevisionHandling switch
+                {
+                    RevisionHandling.AcceptAll => "accept_all",
+                    RevisionHandling.RejectAll => "reject_all",
+                    RevisionHandling.ShowMarkup => "show_markup",
+                    _ => throw new ArgumentOutOfRangeException(nameof(RevisionHandling)),
+                },
+                StripRedundantEmphasisInHeadings,
+                EmitPageBreaks,
+                IncludeHeadersFooters,
+                CalloutBlockquote,
+                SectionMarkers switch
+                {
+                    SectionMarkerStyle.None => "none",
+                    SectionMarkerStyle.Comment => "comment",
+                    _ => throw new ArgumentOutOfRangeException(nameof(SectionMarkers)),
+                }),
+            UndocJsonContext.Default.RenderOptionsJson);
 }
+
+/// <summary>
+/// The JSON object <c>undoc_to_markdown_with_options</c> reads.
+/// </summary>
+internal sealed record RenderOptionsJson(
+    [property: JsonPropertyName("include_frontmatter")] bool IncludeFrontmatter,
+    [property: JsonPropertyName("escape_special_chars")] bool EscapeSpecialChars,
+    [property: JsonPropertyName("paragraph_spacing")] bool ParagraphSpacing,
+    [property: JsonPropertyName("refine")] bool Refine,
+    [property: JsonPropertyName("image_path_prefix")] string ImagePathPrefix,
+    [property: JsonPropertyName("include_images")] bool IncludeImages,
+    [property: JsonPropertyName("table_fallback")] string TableFallback,
+    [property: JsonPropertyName("max_heading_level")] int MaxHeadingLevel,
+    [property: JsonPropertyName("preserve_line_breaks")] bool PreserveLineBreaks,
+    [property: JsonPropertyName("include_empty_paragraphs")] bool IncludeEmptyParagraphs,
+    [property: JsonPropertyName("list_marker")] string ListMarker,
+    [property: JsonPropertyName("cleanup_preset")] string CleanupPreset,
+    [property: JsonPropertyName("revision_handling")] string RevisionHandling,
+    [property: JsonPropertyName("strip_redundant_emphasis_in_headings")] bool StripRedundantEmphasisInHeadings,
+    [property: JsonPropertyName("emit_page_breaks")] bool EmitPageBreaks,
+    [property: JsonPropertyName("include_headers_footers")] bool IncludeHeadersFooters,
+    [property: JsonPropertyName("callout_blockquote")] bool CalloutBlockquote,
+    [property: JsonPropertyName("section_markers")] string SectionMarkers);
 
 /// <summary>
 /// Represents a parsed Office document.
@@ -171,8 +336,8 @@ public class UndocDocument : IDisposable
     public string ToMarkdown(MarkdownOptions? options = null)
     {
         ThrowIfDisposed();
-        uint flags = options?.ToFlags() ?? 0;
-        var ptr = NativeMethods.undoc_to_markdown(_handle, flags);
+        var ptr = NativeMethods.undoc_to_markdown_with_options(
+            _handle, (options ?? new MarkdownOptions()).ToJson());
         if (ptr == IntPtr.Zero)
             throw NativeFailure("Failed to convert to markdown");
 
