@@ -800,7 +800,11 @@ impl PptxParser {
                             if !current_text.is_empty() {
                                 current_runs.push(TextRun {
                                     text: current_text.clone(),
-                                    style: current_style.clone(),
+                                    style: if current_hyperlink.is_some() {
+                                        current_style.clone().in_link()
+                                    } else {
+                                        current_style.clone()
+                                    },
                                     hyperlink: current_hyperlink.clone(),
                                     line_break: false,
                                     page_break: false,
@@ -1205,7 +1209,11 @@ impl PptxParser {
                             if !current_text.is_empty() {
                                 current_runs.push(TextRun {
                                     text: current_text.clone(),
-                                    style: current_style.clone(),
+                                    style: if current_hyperlink.is_some() {
+                                        current_style.clone().in_link()
+                                    } else {
+                                        current_style.clone()
+                                    },
                                     hyperlink: current_hyperlink.clone(),
                                     line_break: false,
                                     page_break: false,
@@ -1434,7 +1442,11 @@ impl PptxParser {
                             if !current_text.is_empty() {
                                 current_runs.push(TextRun {
                                     text: current_text.clone(),
-                                    style: current_style.clone(),
+                                    style: if current_hyperlink.is_some() {
+                                        current_style.clone().in_link()
+                                    } else {
+                                        current_style.clone()
+                                    },
                                     hyperlink: current_hyperlink.clone(),
                                     line_break: false,
                                     page_break: false,
@@ -2372,6 +2384,27 @@ mod tests {
             .find(|r| r.text == "the spec")
             .expect("the linked run");
         assert_eq!(run.hyperlink.as_deref(), Some("https://example.com/spec"));
+    }
+
+    /// A linked run's underline is how the link looks, not the author's emphasis; an
+    /// underlined run outside a link keeps it.
+    #[test]
+    fn test_a_link_run_is_not_kept_underlined() {
+        let shape = r#"<p:sp><p:nvSpPr><p:cNvPr id="2" name="Link"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:txBody><a:bodyPr/><a:p><a:r><a:rPr u="sng"><a:hlinkClick r:id="rIdLink"/></a:rPr><a:t>the spec</a:t></a:r><a:r><a:rPr u="sng"/><a:t>marked</a:t></a:r></a:p></p:txBody></p:sp>"#;
+        let rels = r#"<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rIdLink" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com/spec" TargetMode="External"/>
+</Relationships>"#;
+        let data = deck(&[(&slide(shape), rels)], &[]);
+        let doc = PptxParser::from_bytes(data).unwrap().parse().unwrap();
+        let runs: Vec<&TextRun> = paragraphs(&doc.sections[0])
+            .iter()
+            .flat_map(|p| p.runs.iter())
+            .collect();
+        let link = runs.iter().find(|r| r.text == "the spec").unwrap();
+        assert!(link.hyperlink.is_some() && !link.style.underline);
+        let marked = runs.iter().find(|r| r.text == "marked").unwrap();
+        assert!(marked.style.underline);
     }
 
     /// The media a slide references is listed, typed by its extension; a media part no

@@ -24,6 +24,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or `UNPARSER_NO_UPDATE_CHECK=1` set, in CI (`CI` set), or when stderr is not a terminal.
   The README states what the CLI sends over the network.
 
+### Fixed
+
+- **A hyperlink's text is no longer wrapped in `<u>…</u>`.** Since character styles came to be
+  applied (0.20.0), Word's `Hyperlink` style — which draws every link underlined — put its
+  underline on the link's text, so links came out as `[<u>text</u>](url)` and the entries of a
+  table of contents as `<u>Heading</u>`. A link is underlined because it is a link: text inside
+  a hyperlink (to an address or to a bookmark, in `.docx`, `.pptx` and `.doc`) is not recorded as
+  underlined, whether the underline came from a style or was written on the run. Text
+  underlined outside a link keeps it.
+- **A `HYPERLINK` field in a `.docx` is a link.** A link written as a field (`fldChar` or
+  `fldSimple`) rather than a `w:hyperlink` element came out as plain text; its result is now a
+  link to the field's address, as it already was in `.doc`.
+- **Table cells are read like the body's paragraphs.** A cell's paragraphs had a reader of their
+  own that kept bold, italic, underline and strikethrough but dropped the rest: a link in a cell
+  came out as plain text, and tracked changes, tabs, line breaks, footnote references,
+  superscript and subscript, code styles and the paragraph's alignment were lost. Cells now go
+  through the same paragraph reader as the body. A heading style in a cell still makes no
+  heading.
+- **Attribute values with character references are read resolved** — a `HYPERLINK` field's
+  `w:instr`, a VML picture's title (`&amp;` read as `&`).
+
 ## [0.23.0] - 2026-10-12
 
 ### Added

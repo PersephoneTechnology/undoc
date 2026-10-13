@@ -74,6 +74,9 @@ pub mod streaming;
 #[cfg(any(feature = "doc", feature = "xls", feature = "ppt"))]
 mod summary;
 
+#[cfg(any(feature = "docx", feature = "doc"))]
+mod fields;
+
 #[cfg(feature = "docx")]
 pub mod docx;
 

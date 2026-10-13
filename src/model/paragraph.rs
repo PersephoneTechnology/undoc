@@ -112,7 +112,8 @@ pub struct TextStyle {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub italic: bool,
 
-    /// Underlined text
+    /// Underlined text -- underlined by the author, not as part of a hyperlink: a link's
+    /// underline is how it looks as a link (see [`TextStyle::in_link`]).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub underline: bool,
 
@@ -147,6 +148,17 @@ pub struct TextStyle {
     /// Background/highlight color
     #[serde(skip_serializing_if = "Option::is_none")]
     pub highlight: Option<String>,
+}
+
+impl TextStyle {
+    /// This style for text that is part of a hyperlink. A link is underlined because it is a
+    /// link -- Word's `Hyperlink` character style, a producer writing the underline on the run,
+    /// a viewer drawing one -- and the link already says so: the underline is not kept as the
+    /// author's emphasis.
+    pub(crate) fn in_link(mut self) -> Self {
+        self.underline = false;
+        self
+    }
 }
 
 impl TextStyle {
