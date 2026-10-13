@@ -9,6 +9,7 @@ use super::lists::{self, ListCounter, ListTable};
 use super::props::{self, PapxIndex, ParaProps, StyleInfo};
 use super::symbol;
 use super::text::{self, DocChar};
+use super::word6;
 use crate::detect::FormatType;
 use crate::error::{Error, Result};
 use crate::model::{
@@ -60,7 +61,55 @@ impl DocParser {
         let mut container = cfb::CompoundFile::open(Cursor::new(&self.data[..]))
             .map_err(|e| Error::InvalidData(format!("Word document: unreadable container: {e}")))?;
         let word_document = read_stream(&mut container, "/WordDocument")?;
-        let fib = fib::parse(&word_document)?;
+        match fib::parse(&word_document)? {
+            fib::Format::Word97(fib) => Self::parse_word97(container, word_document, fib),
+            fib::Format::Word6(fib) => Self::parse_word6(container, word_document, fib),
+        }
+    }
+
+    /// A Word 6.0 or Word 95 document: its text -- paragraphs, breaks, field results -- in
+    /// the document's code page. Its formatting, styles, tables, notes, headers and pictures
+    /// are kept in structures of their own and are not read: the text is all there, as
+    /// paragraphs.
+    fn parse_word6(
+        mut container: cfb::CompoundFile<Cursor<&[u8]>>,
+        word_document: Vec<u8>,
+        fib: fib::Word6Fib,
+    ) -> Result<Document> {
+        let codepage = word6::code_page(&word_document, fib.sttbf_ffn);
+        let pieces = match fib.clx {
+            Some(clx) => word6::pieces(&word_document, clx)?,
+            None => vec![text::Piece {
+                cp_start: 0,
+                cp_end: fib.ccp_text,
+                fc: fib.fc_min,
+                compressed: true,
+            }],
+        };
+        let chars = word6::read_chars(&word_document, &pieces, fib.ccp_text, codepage)?;
+
+        let mut doc = Document::new();
+        doc.format = FormatType::Doc;
+        doc.metadata = crate::summary::read(&mut container);
+        let mut section = Section::new(0);
+        let (papx, chpx, lists) = (
+            PapxIndex::default(),
+            ChpxIndex::default(),
+            ListTable::default(),
+        );
+        let mut assembler = Assembler::new(&papx, &chpx, &[], &[], &lists, &[], &[]);
+        for block in assembler.run(&chars) {
+            section.add_block(block);
+        }
+        doc.add_section(section);
+        Ok(doc)
+    }
+
+    fn parse_word97(
+        mut container: cfb::CompoundFile<Cursor<&[u8]>>,
+        word_document: Vec<u8>,
+        fib: fib::Fib,
+    ) -> Result<Document> {
         let table = read_stream(&mut container, &format!("/{}", fib.table_stream))?;
         // Only documents with inline pictures have one.
         let data = read_stream(&mut container, "/Data").unwrap_or_default();

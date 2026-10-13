@@ -39,7 +39,7 @@ pub(crate) fn decode_strict(bytes: &[u8], codepage: u16) -> Option<String> {
 /// Decode `bytes` in `codepage`, never dropping text: a byte the code page cannot account for
 /// — or any non-ASCII byte when the code page itself is unknown or its table not compiled in —
 /// becomes U+FFFD. For content, where a visible gap is better than a missing cell.
-#[cfg(feature = "xls")]
+#[cfg(any(feature = "xls", feature = "doc"))]
 pub(crate) fn decode_lossy(bytes: &[u8], codepage: u16) -> String {
     if let Some(text) = decode_strict(bytes, codepage) {
         return text;
@@ -54,7 +54,7 @@ pub(crate) fn decode_lossy(bytes: &[u8], codepage: u16) -> String {
 
 /// The code page a font's `charset` ([MS-XLS] 2.5.82, the GDI `LOGFONT` character sets)
 /// writes in; `None` for the ANSI, default and symbol sets, which do not narrow it.
-#[cfg(feature = "xls")]
+#[cfg(any(feature = "xls", feature = "doc"))]
 pub(crate) fn from_charset(charset: u8) -> Option<u16> {
     Some(match charset {
         128 => 932,  // SHIFTJIS

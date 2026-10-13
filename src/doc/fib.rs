@@ -10,8 +10,18 @@ const WORD_IDENT: u16 = 0xA5EC;
 const WORD6_IDENT: u16 = 0xA5DC;
 
 /// The lowest `nFib` of the Word 97 file format. Word 6.0 and Word 95 wrote 101–104 and use a
-/// different, incompatible FIB and text layout.
+/// different FIB and text layout (see [`Word6Fib`]).
 const FIRST_WORD97_NFIB: u16 = 0x00C0;
+
+/// `FibBase` flag: the document was fast-saved, so its text is in pieces (a `Clx`).
+const F_COMPLEX: u16 = 0x0004;
+
+/// Offsets in the Word 6.0/95 FIB, which has no variable-length arrays: every field is at a
+/// fixed place.
+const W6_FC_MIN: usize = 0x18;
+const W6_CCP_TEXT: usize = 0x34;
+const W6_STTBF_FFN: usize = 0xD0;
+const W6_CLX: usize = 0x160;
 
 /// `FibBase` flag: the document is encrypted or XOR-obfuscated.
 const F_ENCRYPTED: u16 = 0x0100;
@@ -40,6 +50,28 @@ const LW_CCP_TEXT: usize = 3;
 const LW_CCP_FTN: usize = 4;
 const LW_CCP_HDD: usize = 5;
 const LW_CCP_ATN: usize = 7;
+
+/// What the reader needs from a Word 6.0 or Word 95 FIB. Those versions keep everything in
+/// the `WordDocument` stream (there is no table stream) and store text one byte per character
+/// in the document's code page.
+#[derive(Debug, Clone)]
+pub(super) struct Word6Fib {
+    /// Where the text begins in the stream.
+    pub fc_min: u32,
+    /// Character count of the main document text.
+    pub ccp_text: u32,
+    /// The piece table of a fast-saved document; `None` when the text is one run from `fc_min`.
+    pub clx: Option<FcLcb>,
+    /// The font table, whose character sets name the text's code page.
+    pub sttbf_ffn: FcLcb,
+}
+
+/// A Word binary document's FIB: Word 97 and later, or Word 6.0/95.
+#[derive(Debug, Clone)]
+pub(super) enum Format {
+    Word97(Fib),
+    Word6(Word6Fib),
+}
 
 /// A byte range of the table stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,36 +124,27 @@ fn u32_at(data: &[u8], at: usize) -> Option<u32> {
         .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
 }
 
-fn word6() -> Error {
-    Error::UnsupportedFormat(
-        "Word 6.0/95 document (.doc) — only Word 97 and later are supported".into(),
-    )
-}
-
 fn truncated() -> Error {
     Error::InvalidData("Word document: the File Information Block is truncated".into())
 }
 
 /// Read the FIB from the start of the `WordDocument` stream.
-pub(super) fn parse(word_document: &[u8]) -> Result<Fib> {
+pub(super) fn parse(word_document: &[u8]) -> Result<Format> {
     let data = word_document;
     let ident = u16_at(data, 0).ok_or_else(truncated)?;
-    if ident == WORD6_IDENT {
-        return Err(word6());
-    }
-    if ident != WORD_IDENT {
+    if ident != WORD_IDENT && ident != WORD6_IDENT {
         return Err(Error::InvalidData(format!(
             "Word document: the WordDocument stream does not begin with a File Information \
              Block (wIdent 0x{ident:04X}, expected 0x{WORD_IDENT:04X})"
         )));
     }
     let n_fib = u16_at(data, 2).ok_or_else(truncated)?;
-    if n_fib < FIRST_WORD97_NFIB {
-        return Err(word6());
-    }
     let flags = u16_at(data, 0x0A).ok_or_else(truncated)?;
     if flags & F_ENCRYPTED != 0 {
         return Err(Error::Encrypted);
+    }
+    if ident == WORD6_IDENT || n_fib < FIRST_WORD97_NFIB {
+        return parse_word6(data, flags).map(Format::Word6);
     }
     let table_stream = if flags & F_WHICH_TBL_STM != 0 {
         "1Table"
@@ -151,7 +174,7 @@ pub(super) fn parse(word_document: &[u8]) -> Result<Fib> {
         })
     };
 
-    Ok(Fib {
+    Ok(Format::Word97(Fib {
         table_stream,
         ccp_text: lw(LW_CCP_TEXT)?,
         ccp_ftn: lw(LW_CCP_FTN)?,
@@ -169,5 +192,21 @@ pub(super) fn parse(word_document: &[u8]) -> Result<Fib> {
         plcf_hdd: pair(PAIR_PLCF_HDD)?,
         plf_lst: pair(PAIR_PLF_LST)?,
         plf_lfo: pair(PAIR_PLF_LFO)?,
+    }))
+}
+
+fn parse_word6(data: &[u8], flags: u16) -> Result<Word6Fib> {
+    let pair = |at: usize| -> Result<FcLcb> {
+        Ok(FcLcb {
+            fc: u32_at(data, at).ok_or_else(truncated)?,
+            lcb: u32_at(data, at + 4).ok_or_else(truncated)?,
+        })
+    };
+    let clx = pair(W6_CLX)?;
+    Ok(Word6Fib {
+        fc_min: u32_at(data, W6_FC_MIN).ok_or_else(truncated)?,
+        ccp_text: u32_at(data, W6_CCP_TEXT).ok_or_else(truncated)?,
+        clx: (flags & F_COMPLEX != 0).then_some(clx),
+        sttbf_ffn: pair(W6_STTBF_FFN)?,
     })
 }

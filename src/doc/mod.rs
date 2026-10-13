@@ -2,8 +2,10 @@
 //!
 //! Reads the main document text through the piece table, and the paragraph properties that
 //! decide structure — tables, headings — from the formatted disk pages and the style sheet
-//! ([MS-DOC]). Word 6.0 and Word 95 files, which use an earlier layout, are reported as
-//! unsupported; encrypted files as [`Error::Encrypted`](crate::Error::Encrypted).
+//! ([MS-DOC]). Word 6.0 and Word 95 files, which use an earlier layout, are read for their
+//! text -- paragraphs, breaks and field results, in the document's code page -- without their
+//! formatting, styles, tables, notes, headers or pictures. Encrypted files are reported as
+//! [`Error::Encrypted`](crate::Error::Encrypted).
 //!
 //! # Example
 //!
@@ -24,6 +26,7 @@ mod pictures;
 mod props;
 mod symbol;
 mod text;
+mod word6;
 
 pub use parser::DocParser;
 

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Word 6.0 and Word 95 `.doc` files are read for their text.** They were rejected as
+  `UnsupportedFormat`. Their text — paragraphs, line and page breaks, a field's result without
+  its instruction — is now read, fast-saved files included, in the code page the document's
+  fonts name (Windows-1252 when none does). Their formatting, styles and headings, tables,
+  notes, headers and pictures are kept in structures of their own and are not read yet: a
+  table's cells come out as paragraphs.
+
 ### Fixed
 
 - **A `.pptx` table cell keeps its underline and strikethrough.** A cell's runs were read with

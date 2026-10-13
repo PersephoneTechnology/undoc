@@ -472,35 +472,123 @@ fn an_encrypted_document_is_reported_as_encrypted() {
     assert!(matches!(err, Error::Encrypted), "{err}");
 }
 
+/// A Word 6.0/95 document: the `WordDocument` stream alone, its FIB at fixed offsets, its text
+/// one byte per character from `fcMin` -- or, fast-saved, in `pieces` (character count, byte
+/// offset) through a piece table -- and a font table whose character sets name the code page.
+fn build_word6(text: &[u8], n_fib: u16, fonts: &[u8], pieces: Option<&[(u32, u32)]>) -> Vec<u8> {
+    const FC_MIN: usize = 0x300;
+    const FONTS_AT: usize = 0x600;
+    const CLX_AT: usize = 0x700;
+    let mut wd = vec![0u8; 0x800];
+    wd[0..2].copy_from_slice(&0xA5DCu16.to_le_bytes());
+    wd[2..4].copy_from_slice(&n_fib.to_le_bytes());
+    let flags: u16 = if pieces.is_some() { 0x0004 } else { 0 };
+    wd[0x0A..0x0C].copy_from_slice(&flags.to_le_bytes());
+    wd[0x18..0x1C].copy_from_slice(&(FC_MIN as u32).to_le_bytes());
+    wd[0x1C..0x20].copy_from_slice(&((FC_MIN + text.len()) as u32).to_le_bytes());
+    let ccp: u32 = match pieces {
+        Some(pieces) => pieces.iter().map(|&(n, _)| n).sum(),
+        None => text.len() as u32,
+    };
+    wd[0x34..0x38].copy_from_slice(&ccp.to_le_bytes());
+    wd[FC_MIN..FC_MIN + text.len()].copy_from_slice(text);
+
+    // Font table: total length, then per font its length less one, three bytes of family and
+    // weight, the character set, the alternate-name index, and the name.
+    let mut table = vec![0u8, 0];
+    for (i, &chs) in fonts.iter().enumerate() {
+        let name = format!("Font{i}\0");
+        table.push((5 + name.len()) as u8);
+        table.extend_from_slice(&[0, 0x90, 0x01, chs, 0]);
+        table.extend_from_slice(name.as_bytes());
+    }
+    let len = table.len() as u16;
+    table[0..2].copy_from_slice(&len.to_le_bytes());
+    wd[FONTS_AT..FONTS_AT + table.len()].copy_from_slice(&table);
+    wd[0xD0..0xD4].copy_from_slice(&(FONTS_AT as u32).to_le_bytes());
+    wd[0xD4..0xD8].copy_from_slice(&(table.len() as u32).to_le_bytes());
+
+    if let Some(pieces) = pieces {
+        let mut plc = Vec::new();
+        let mut cp = 0u32;
+        le32(&mut plc, cp);
+        for &(n, _) in pieces {
+            cp += n;
+            le32(&mut plc, cp);
+        }
+        for &(_, fc) in pieces {
+            le16(&mut plc, 0);
+            le32(&mut plc, FC_MIN as u32 + fc);
+            le16(&mut plc, 0);
+        }
+        let mut clx = vec![0x02];
+        le32(&mut clx, plc.len() as u32);
+        clx.extend_from_slice(&plc);
+        wd[CLX_AT..CLX_AT + clx.len()].copy_from_slice(&clx);
+        wd[0x160..0x164].copy_from_slice(&(CLX_AT as u32).to_le_bytes());
+        wd[0x164..0x168].copy_from_slice(&(clx.len() as u32).to_le_bytes());
+    }
+
+    let mut container = cfb::CompoundFile::create(std::io::Cursor::new(Vec::new())).unwrap();
+    let mut stream = container.create_stream("/WordDocument").unwrap();
+    std::io::Write::write_all(&mut stream, &wd).unwrap();
+    drop(stream);
+    container.flush().unwrap();
+    container.into_inner().into_inner()
+}
+
+fn word6_paragraphs(bytes: Vec<u8>) -> Vec<String> {
+    paragraphs(&DocParser::from_bytes(bytes).unwrap().parse().unwrap())
+}
+
 #[test]
-fn word_95_is_named_as_unsupported() {
-    let err = parse(
-        &[p("old")],
-        Options {
-            n_fib: Some(104),
-            ..Default::default()
-        },
-    )
-    .unwrap_err();
-    assert!(
-        matches!(err, Error::UnsupportedFormat(ref m) if m.contains("Word 6.0/95")),
-        "{err}"
+fn a_word_6_document_is_read_for_its_paragraphs() {
+    let text = b"The quick brown fox jumps over the lazy dog\r\rParagraph 2\r";
+    assert_eq!(
+        word6_paragraphs(build_word6(text, 101, &[0], None)),
+        ["The quick brown fox jumps over the lazy dog", "Paragraph 2"]
     );
 }
 
 #[test]
-fn a_word_6_ident_is_named_as_unsupported() {
-    let mut bytes = build(&[p("old")], Options::default());
-    // Rewrite the stream's wIdent in place: find the FIB by its Word 97 ident.
-    let at = bytes
-        .windows(4)
-        .position(|w| w == [0xEC, 0xA5, 0xC1, 0x00])
-        .expect("the FIB is in the container");
-    bytes[at] = 0xDC;
-    let err = DocParser::from_bytes(bytes).unwrap().parse().unwrap_err();
-    assert!(
-        matches!(err, Error::UnsupportedFormat(ref m) if m.contains("Word 6.0/95")),
-        "{err}"
+fn a_word_95_document_keeps_a_fields_result_and_drops_its_instruction() {
+    let text = b"Page \x13 PAGE \x147\x15 of the report\r";
+    assert_eq!(
+        word6_paragraphs(build_word6(text, 104, &[0], None)),
+        ["Page 7 of the report"]
+    );
+}
+
+#[test]
+fn a_fast_saved_word_6_document_is_read_in_its_pieces_order() {
+    // Two pieces stored in the opposite order of the text they make.
+    let text = b"second half.\rFirst half, ";
+    let pieces = [(13u32, 13u32), (13, 0)];
+    assert_eq!(
+        word6_paragraphs(build_word6(text, 101, &[0], Some(&pieces))),
+        ["First half, second half."]
+    );
+}
+
+/// The text is in the code page the fonts' character set names: here Cyrillic.
+#[cfg(feature = "codepages")]
+#[test]
+fn word_6_text_is_decoded_in_the_code_page_its_fonts_name() {
+    // "привет" in Windows-1251; a symbol font first, which names no code page.
+    let text = b"\xef\xf0\xe8\xe2\xe5\xf2\r";
+    assert_eq!(
+        word6_paragraphs(build_word6(text, 101, &[2, 204], None)),
+        ["\u{43F}\u{440}\u{438}\u{432}\u{435}\u{442}"]
+    );
+}
+
+/// Without a font that names one, the text is Windows-1252.
+#[test]
+fn word_6_text_without_a_named_code_page_is_windows_1252() {
+    let text = b"caf\xe9 \x93quoted\x94\r";
+    assert_eq!(
+        word6_paragraphs(build_word6(text, 101, &[0], None)),
+        ["caf\u{e9} \u{201C}quoted\u{201D}"]
     );
 }
 
