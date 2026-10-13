@@ -68,9 +68,8 @@ impl DocParser {
     }
 
     /// A Word 6.0 or Word 95 document: its text -- paragraphs, breaks, field results -- in
-    /// the document's code page. Its formatting, styles, tables, notes, headers and pictures
-    /// are kept in structures of their own and are not read: the text is all there, as
-    /// paragraphs.
+    /// the document's code page, with the paragraph properties that make structure: tables
+    /// and heading styles. Its character formatting, notes, headers and pictures are not read.
     fn parse_word6(
         mut container: cfb::CompoundFile<Cursor<&[u8]>>,
         word_document: Vec<u8>,
@@ -92,12 +91,10 @@ impl DocParser {
         doc.format = FormatType::Doc;
         doc.metadata = crate::summary::read(&mut container);
         let mut section = Section::new(0);
-        let (papx, chpx, lists) = (
-            PapxIndex::default(),
-            ChpxIndex::default(),
-            ListTable::default(),
-        );
-        let mut assembler = Assembler::new(&papx, &chpx, &[], &[], &lists, &[], &[]);
+        let papx = word6::read_papx(&word_document, fib.plcf_bte_papx);
+        let styles = word6::read_styles(&word_document, fib.stshf, codepage);
+        let (chpx, lists) = (ChpxIndex::default(), ListTable::default());
+        let mut assembler = Assembler::new(&papx, &chpx, &styles, &[], &lists, &[], &[]);
         for block in assembler.run(&chars) {
             section.add_block(block);
         }

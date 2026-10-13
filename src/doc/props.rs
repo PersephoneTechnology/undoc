@@ -44,6 +44,11 @@ pub(super) struct PapxIndex {
 }
 
 impl PapxIndex {
+    /// An index of `runs`, sorted by their start.
+    pub(super) fn from_runs(runs: Vec<(u32, u32, ParaProps)>) -> Self {
+        Self { runs }
+    }
+
     /// The properties of the paragraph whose mark is at stream offset `fc`.
     pub fn at(&self, fc: u32) -> Option<&ParaProps> {
         let i = self.runs.partition_point(|(start, _, _)| *start <= fc);

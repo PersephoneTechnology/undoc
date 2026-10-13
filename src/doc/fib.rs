@@ -19,6 +19,8 @@ const F_COMPLEX: u16 = 0x0004;
 /// Offsets in the Word 6.0/95 FIB, which has no variable-length arrays: every field is at a
 /// fixed place.
 const W6_FC_MIN: usize = 0x18;
+const W6_STSHF: usize = 0x60;
+const W6_PLCF_BTE_PAPX: usize = 0xC0;
 const W6_CCP_TEXT: usize = 0x34;
 const W6_STTBF_FFN: usize = 0xD0;
 const W6_CLX: usize = 0x160;
@@ -64,6 +66,9 @@ pub(super) struct Word6Fib {
     pub clx: Option<FcLcb>,
     /// The font table, whose character sets name the text's code page.
     pub sttbf_ffn: FcLcb,
+    /// The style sheet and the paragraph property page index.
+    pub stshf: FcLcb,
+    pub plcf_bte_papx: FcLcb,
 }
 
 /// A Word binary document's FIB: Word 97 and later, or Word 6.0/95.
@@ -208,5 +213,7 @@ fn parse_word6(data: &[u8], flags: u16) -> Result<Word6Fib> {
         ccp_text: u32_at(data, W6_CCP_TEXT).ok_or_else(truncated)?,
         clx: (flags & F_COMPLEX != 0).then_some(clx),
         sttbf_ffn: pair(W6_STTBF_FFN)?,
+        stshf: pair(W6_STSHF)?,
+        plcf_bte_papx: pair(W6_PLCF_BTE_PAPX)?,
     })
 }

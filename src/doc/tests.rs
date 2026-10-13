@@ -476,10 +476,29 @@ fn an_encrypted_document_is_reported_as_encrypted() {
 /// one byte per character from `fcMin` -- or, fast-saved, in `pieces` (character count, byte
 /// offset) through a piece table -- and a font table whose character sets name the code page.
 fn build_word6(text: &[u8], n_fib: u16, fonts: &[u8], pieces: Option<&[(u32, u32)]>) -> Vec<u8> {
+    build_word6_with(text, n_fib, fonts, pieces, &[])
+}
+
+/// One Word 6.0 paragraph: its length in characters, its style, whether it is in a table and
+/// whether it ends a table row.
+type Word6Para = (u32, u16, bool, bool);
+
+/// [`build_word6`] with paragraph properties, written as one Word 6.0 paragraph page, and a
+/// style sheet whose `istd` 1 is "heading 1".
+fn build_word6_with(
+    text: &[u8],
+    n_fib: u16,
+    fonts: &[u8],
+    pieces: Option<&[(u32, u32)]>,
+    paras: &[Word6Para],
+) -> Vec<u8> {
     const FC_MIN: usize = 0x300;
+    const STSH_AT: usize = 0x500;
     const FONTS_AT: usize = 0x600;
     const CLX_AT: usize = 0x700;
-    let mut wd = vec![0u8; 0x800];
+    const PAPX_PLC_AT: usize = 0x780;
+    const PAPX_PAGE: usize = 4; // the page at 0x800
+    let mut wd = vec![0u8; 0xA00];
     wd[0..2].copy_from_slice(&0xA5DCu16.to_le_bytes());
     wd[2..4].copy_from_slice(&n_fib.to_le_bytes());
     let flags: u16 = if pieces.is_some() { 0x0004 } else { 0 };
@@ -529,6 +548,66 @@ fn build_word6(text: &[u8], n_fib: u16, fonts: &[u8], pieces: Option<&[(u32, u32
         wd[0x164..0x168].copy_from_slice(&(clx.len() as u32).to_le_bytes());
     }
 
+    if !paras.is_empty() {
+        // The paragraph page: run bounds, 7-byte entries, then each run's properties -- a
+        // word count, the style index, and sprmPFInTable / sprmPFTtp.
+        let mut page = vec![0u8; 512];
+        let crun = paras.len();
+        let mut fc = FC_MIN as u32;
+        for (i, &(len, ..)) in paras.iter().enumerate() {
+            page[i * 4..i * 4 + 4].copy_from_slice(&fc.to_le_bytes());
+            fc += len;
+        }
+        page[crun * 4..crun * 4 + 4].copy_from_slice(&fc.to_le_bytes());
+        let mut papx_at = 510usize;
+        for (i, &(_, istd, in_table, ttp)) in paras.iter().enumerate() {
+            let mut papx = istd.to_le_bytes().to_vec();
+            if in_table {
+                papx.extend_from_slice(&[24, 1]);
+            }
+            if ttp {
+                papx.extend_from_slice(&[25, 1]);
+            }
+            let words = papx.len().div_ceil(2);
+            papx.resize(words * 2, 0);
+            papx_at -= 1 + papx.len();
+            papx_at &= !1;
+            page[papx_at] = words as u8;
+            page[papx_at + 1..papx_at + 1 + papx.len()].copy_from_slice(&papx);
+            page[4 * (crun + 1) + i * 7] = (papx_at / 2) as u8;
+        }
+        page[511] = crun as u8;
+        let at = PAPX_PAGE * 512;
+        wd[at..at + 512].copy_from_slice(&page);
+        let mut plc = Vec::new();
+        le32(&mut plc, FC_MIN as u32);
+        le32(&mut plc, fc);
+        le16(&mut plc, PAPX_PAGE as u16);
+        wd[PAPX_PLC_AT..PAPX_PLC_AT + plc.len()].copy_from_slice(&plc);
+        wd[0xC0..0xC4].copy_from_slice(&(PAPX_PLC_AT as u32).to_le_bytes());
+        wd[0xC4..0xC8].copy_from_slice(&(plc.len() as u32).to_le_bytes());
+
+        // The style sheet: a 14-byte header (cstd 2, an 8-byte style base), "Normal" (sti 0)
+        // and "heading 1" (sti 1), each a style base and a length-prefixed name.
+        let mut stsh = Vec::new();
+        le16(&mut stsh, 14);
+        le16(&mut stsh, 2);
+        le16(&mut stsh, 8);
+        stsh.extend_from_slice(&[0; 10]);
+        for (sti, name) in [(0u16, "Normal"), (1, "heading 1")] {
+            let mut std = sti.to_le_bytes().to_vec();
+            std.extend_from_slice(&[0; 6]);
+            std.push(name.len() as u8);
+            std.extend_from_slice(name.as_bytes());
+            std.push(0);
+            le16(&mut stsh, std.len() as u16);
+            stsh.extend_from_slice(&std);
+        }
+        wd[STSH_AT..STSH_AT + stsh.len()].copy_from_slice(&stsh);
+        wd[0x60..0x64].copy_from_slice(&(STSH_AT as u32).to_le_bytes());
+        wd[0x64..0x68].copy_from_slice(&(stsh.len() as u32).to_le_bytes());
+    }
+
     let mut container = cfb::CompoundFile::create(std::io::Cursor::new(Vec::new())).unwrap();
     let mut stream = container.create_stream("/WordDocument").unwrap();
     std::io::Write::write_all(&mut stream, &wd).unwrap();
@@ -568,6 +647,76 @@ fn a_fast_saved_word_6_document_is_read_in_its_pieces_order() {
         word6_paragraphs(build_word6(text, 101, &[0], Some(&pieces))),
         ["First half, second half."]
     );
+}
+
+/// A paragraph in the heading 1 style is a heading, as in a Word 97 document.
+#[test]
+fn a_word_6_heading_style_makes_a_heading() {
+    let text = b"Overview\rBody text.\r";
+    let doc = DocParser::from_bytes(build_word6_with(
+        text,
+        101,
+        &[0],
+        None,
+        &[(9, 1, false, false), (11, 0, false, false)],
+    ))
+    .unwrap()
+    .parse()
+    .unwrap();
+    let paras: Vec<(&str, crate::model::HeadingLevel)> = doc.sections[0]
+        .content
+        .iter()
+        .filter_map(|b| match b {
+            Block::Paragraph(p) => Some((p.runs[0].text.as_str(), p.heading)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        paras,
+        [
+            ("Overview", crate::model::HeadingLevel::H1),
+            ("Body text.", crate::model::HeadingLevel::None)
+        ]
+    );
+}
+
+/// A Word 6.0 table -- cells ended by cell marks, a row ended by a row-end mark -- is a table.
+#[test]
+fn a_word_6_table_is_a_table() {
+    let text = b"Name\x07Qty\x07\x07Pen\x072\x07\x07After.\r";
+    let doc = DocParser::from_bytes(build_word6_with(
+        text,
+        101,
+        &[0],
+        None,
+        &[
+            (5, 0, true, false),
+            (4, 0, true, false),
+            (1, 0, true, true),
+            (4, 0, true, false),
+            (2, 0, true, false),
+            (1, 0, true, true),
+            (7, 0, false, false),
+        ],
+    ))
+    .unwrap()
+    .parse()
+    .unwrap();
+    let table = doc.sections[0]
+        .content
+        .iter()
+        .find_map(|b| match b {
+            Block::Table(t) => Some(t),
+            _ => None,
+        })
+        .expect("a table");
+    let cells: Vec<Vec<String>> = table
+        .rows
+        .iter()
+        .map(|r| r.cells.iter().map(|c| c.plain_text()).collect())
+        .collect();
+    assert_eq!(cells, [["Name", "Qty"], ["Pen", "2"]]);
+    assert_eq!(paragraphs(&doc), ["After."]);
 }
 
 /// The text is in the code page the fonts' character set names: here Cyrillic.
