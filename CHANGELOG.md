@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A `.pptx` table cell keeps its underline and strikethrough.** A cell's runs were read with
+  bold and italic only; one reader of a run's properties now serves table cells, text boxes and
+  notes alike.
+
 ### Changed
 
 - **A link to a place in the same document is written as text in every format.** A `.doc`

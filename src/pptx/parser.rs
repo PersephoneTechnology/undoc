@@ -698,19 +698,7 @@ impl PptxParser {
                         // a:rPr - run properties
                         "rPr" if in_run => {
                             in_rpr = true;
-                            for attr in e.attributes().flatten() {
-                                match attr.key.local_name().as_ref() {
-                                    "b" => {
-                                        let val = attr.value.as_ref();
-                                        current_style.bold = val != "0" && val != "false";
-                                    }
-                                    "i" => {
-                                        let val = attr.value.as_ref();
-                                        current_style.italic = val != "0" && val != "false";
-                                    }
-                                    _ => {}
-                                }
-                            }
+                            apply_run_properties(e, &mut current_style);
                         }
                         // a:hlinkClick - hyperlink (nested in a:rPr)
                         "hlinkClick" if in_rpr => {
@@ -748,19 +736,7 @@ impl PptxParser {
                         }
                         // Handle self-closing run properties
                         "rPr" if in_run => {
-                            for attr in e.attributes().flatten() {
-                                match attr.key.local_name().as_ref() {
-                                    "b" => {
-                                        let val = attr.value.as_ref();
-                                        current_style.bold = val != "0" && val != "false";
-                                    }
-                                    "i" => {
-                                        let val = attr.value.as_ref();
-                                        current_style.italic = val != "0" && val != "false";
-                                    }
-                                    _ => {}
-                                }
-                            }
+                            apply_run_properties(e, &mut current_style);
                         }
                         // a:hlinkClick - hyperlink (self-closing)
                         "hlinkClick" if in_run => {
@@ -1006,28 +982,7 @@ impl PptxParser {
                         // a:rPr - run properties
                         "rPr" if in_run && !in_table => {
                             in_rpr = true;
-                            for attr in e.attributes().flatten() {
-                                match attr.key.local_name().as_ref() {
-                                    "b" => {
-                                        let val = attr.value.as_ref();
-                                        current_style.bold = val != "0" && val != "false";
-                                    }
-                                    "i" => {
-                                        let val = attr.value.as_ref();
-                                        current_style.italic = val != "0" && val != "false";
-                                    }
-                                    "u" => {
-                                        let val = attr.value.as_ref();
-                                        current_style.underline = val != "none";
-                                    }
-                                    "strike" => {
-                                        let val = attr.value.as_ref();
-                                        current_style.strikethrough =
-                                            val != "noStrike" && val != "0" && val != "false";
-                                    }
-                                    _ => {}
-                                }
-                            }
+                            apply_run_properties(e, &mut current_style);
                         }
                         // a:hlinkClick - hyperlink (nested in a:rPr)
                         "hlinkClick" if in_rpr && !in_table => {
@@ -1119,28 +1074,7 @@ impl PptxParser {
                             });
                         }
                         "rPr" if in_run && !in_table => {
-                            for attr in e.attributes().flatten() {
-                                match attr.key.local_name().as_ref() {
-                                    "b" => {
-                                        let val = attr.value.as_ref();
-                                        current_style.bold = val != "0" && val != "false";
-                                    }
-                                    "i" => {
-                                        let val = attr.value.as_ref();
-                                        current_style.italic = val != "0" && val != "false";
-                                    }
-                                    "u" => {
-                                        let val = attr.value.as_ref();
-                                        current_style.underline = val != "none";
-                                    }
-                                    "strike" => {
-                                        let val = attr.value.as_ref();
-                                        current_style.strikethrough =
-                                            val != "noStrike" && val != "0" && val != "false";
-                                    }
-                                    _ => {}
-                                }
-                            }
+                            apply_run_properties(e, &mut current_style);
                         }
                         // a:hlinkClick - hyperlink (self-closing)
                         "hlinkClick" if in_run && !in_table => {
@@ -1324,28 +1258,7 @@ impl PptxParser {
                         "rPr" if in_run => {
                             in_rpr = true;
                             // Parse run properties for styling
-                            for attr in e.attributes().flatten() {
-                                match attr.key.local_name().as_ref() {
-                                    "b" => {
-                                        let val = attr.value.as_ref();
-                                        current_style.bold = val != "0" && val != "false";
-                                    }
-                                    "i" => {
-                                        let val = attr.value.as_ref();
-                                        current_style.italic = val != "0" && val != "false";
-                                    }
-                                    "u" => {
-                                        let val = attr.value.as_ref();
-                                        current_style.underline = val != "none";
-                                    }
-                                    "strike" => {
-                                        let val = attr.value.as_ref();
-                                        current_style.strikethrough =
-                                            val != "noStrike" && val != "0" && val != "false";
-                                    }
-                                    _ => {}
-                                }
-                            }
+                            apply_run_properties(e, &mut current_style);
                         }
                         // a:hlinkClick - hyperlink (nested in a:rPr)
                         "hlinkClick" if in_rpr => {
@@ -1361,28 +1274,7 @@ impl PptxParser {
                     match local_name.as_ref() {
                         // Handle self-closing run properties
                         "rPr" if in_run => {
-                            for attr in e.attributes().flatten() {
-                                match attr.key.local_name().as_ref() {
-                                    "b" => {
-                                        let val = attr.value.as_ref();
-                                        current_style.bold = val != "0" && val != "false";
-                                    }
-                                    "i" => {
-                                        let val = attr.value.as_ref();
-                                        current_style.italic = val != "0" && val != "false";
-                                    }
-                                    "u" => {
-                                        let val = attr.value.as_ref();
-                                        current_style.underline = val != "none";
-                                    }
-                                    "strike" => {
-                                        let val = attr.value.as_ref();
-                                        current_style.strikethrough =
-                                            val != "noStrike" && val != "0" && val != "false";
-                                    }
-                                    _ => {}
-                                }
-                            }
+                            apply_run_properties(e, &mut current_style);
                         }
                         // a:hlinkClick - hyperlink (self-closing)
                         "hlinkClick" if in_run => {
@@ -1991,6 +1883,22 @@ fn is_true(value: &str) -> bool {
     value == "1" || value == "true"
 }
 
+/// Apply the formatting an `a:rPr` sets on its run -- bold, italic, underline, strikethrough --
+/// to `style`. One reader for every place a run is read: a table cell's runs once kept only
+/// bold and italic, and lost their underline and strikethrough.
+fn apply_run_properties(e: &quick_xml::events::BytesStart<'_>, style: &mut TextStyle) {
+    for attr in e.attributes().flatten() {
+        let val = crate::decode::attr_value(&attr);
+        match attr.key.local_name().as_ref() {
+            "b" => style.bold = val != "0" && val != "false",
+            "i" => style.italic = val != "0" && val != "false",
+            "u" => style.underline = val != "none",
+            "strike" => style.strikethrough = val != "noStrike" && val != "0" && val != "false",
+            _ => {}
+        }
+    }
+}
+
 /// The address an `a:hlinkClick` links its text to: the target of the relationship it names.
 /// A jump to another slide of the deck (`ppaction://hlinksldjump`, `ppaction://hlinkshowjump`)
 /// leads to no address the output can point at, and is no link.
@@ -2277,6 +2185,41 @@ mod tests {
             crate::render::to_markdown(&doc, &crate::render::RenderOptions::default()).unwrap();
         assert!(md.contains("| Name | Score |"), "markdown: {md}");
         assert!(md.contains("| Ada | 99 |"), "markdown: {md}");
+    }
+
+    /// A table cell's run keeps all of its formatting -- underline and strikethrough as well
+    /// as bold and italic -- as a run in a text box does.
+    #[test]
+    fn test_a_table_cell_run_keeps_its_underline_and_strikethrough() {
+        let cell = |rpr: &str, text: &str| {
+            format!(
+                r#"<a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:rPr {rpr}/><a:t>{text}</a:t></a:r></a:p></a:txBody></a:tc>"#
+            )
+        };
+        let table = format!(
+            r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="4" name="Table"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl><a:tr h="370840">{}{}</a:tr><a:tr h="370840">{}{}</a:tr></a:tbl></a:graphicData></a:graphic></p:graphicFrame>"#,
+            cell("", "Name"),
+            cell("", "Note"),
+            cell(r#"u="sng""#, "marked"),
+            cell(r#"strike="sngStrike""#, "dropped")
+        );
+        let data = deck(&[(&slide(&table), EMPTY_RELS)], &[]);
+        let doc = PptxParser::from_bytes(data).unwrap().parse().unwrap();
+        let runs: Vec<&TextRun> = doc.sections[0]
+            .content
+            .iter()
+            .filter_map(|block| match block {
+                crate::model::Block::Table(t) => Some(t),
+                _ => None,
+            })
+            .flat_map(|t| t.rows.iter())
+            .flat_map(|row| row.cells.iter())
+            .flat_map(|cell| cell.content.iter())
+            .flat_map(|p| p.runs.iter())
+            .collect();
+        let run = |text: &str| runs.iter().find(|r| r.text == text).copied().unwrap();
+        assert!(run("marked").style.underline);
+        assert!(run("dropped").style.strikethrough);
     }
 
     /// DrawingML writes every grid position as an `a:tc`, marking the ones a merge covers
