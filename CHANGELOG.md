@@ -12,6 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A `.pptx` table cell keeps its underline and strikethrough.** A cell's runs were read with
   bold and italic only; one reader of a run's properties now serves table cells, text boxes and
   notes alike.
+- **A `.pptx` paragraph's line breaks and fields are read.** A line break inside a paragraph
+  (`a:br`) was dropped, so the words either side of it ran together; a field — a slide number,
+  a date, kept up to date by the application — lost its text altogether. A break now ends its
+  line (`TextRun::line_break`, as in `.docx`) and a field is read as a run of the value it last
+  showed, with its formatting. This holds for text boxes, table cells, notes and the text a
+  slide's placeholders take from its layout and master — all four now read a paragraph's runs
+  through one reader, and that text keeps its bold, italic, underline and strikethrough.
+- **A slide layout or master that cannot be parsed is an error.** Reading the text a slide's
+  placeholders take from them ignored a malformed part and used what had been read so far; it
+  is now reported, as for every other part that is present and unreadable.
 
 ### Changed
 

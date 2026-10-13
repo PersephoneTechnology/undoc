@@ -6,7 +6,7 @@ use crate::container::OoxmlContainer;
 use crate::error::Result;
 use crate::model::{
     Block, Cell, Document, HeadingLevel, ListInfo, ListType, Metadata, Paragraph, Resource,
-    ResourceRole, RevisionType, Row, Section, Table, TextRun, TextStyle,
+    ResourceRole, Row, Section, Table, TextRun, TextStyle,
 };
 use std::collections::HashMap;
 #[cfg(not(target_arch = "wasm32"))]
@@ -601,9 +601,6 @@ impl PptxParser {
         let mut in_cell = false;
         let mut in_txbody = false;
         let mut in_paragraph = false;
-        let mut in_run = false;
-        let mut in_text = false;
-        let mut in_rpr = false;
         let mut in_tc_pr = false;
         let mut in_ppr = false;
         let mut in_bu_blip = false;
@@ -621,13 +618,12 @@ impl PptxParser {
         // `row_span` counting a row that is not there.
         let mut row_under_merge = false;
         let mut current_paragraphs: Vec<Paragraph> = Vec::new();
-        let mut current_runs: Vec<TextRun> = Vec::new();
-        let mut current_text = String::new();
-        let mut current_style = TextStyle::default();
-        let mut current_hyperlink: Option<String> = None;
+        let mut runs = RunReader::default();
 
         loop {
             match reader.read_event_into(&mut buf) {
+                Ok(quick_xml::events::Event::Start(ref e))
+                    if in_paragraph && runs.element(e, false, rels) => {}
                 Ok(quick_xml::events::Event::Start(ref e)) => {
                     let local_name = e.name().local_name();
                     match local_name.as_ref() {
@@ -664,7 +660,7 @@ impl PptxParser {
                             in_txbody = true;
                         }
                         // a:pPr / a:buBlip - the paragraph's own picture bullet
-                        "pPr" if in_paragraph => {
+                        "pPr" if in_paragraph && !runs.in_run() => {
                             in_ppr = true;
                             current_level = paragraph_level(e);
                         }
@@ -682,33 +678,13 @@ impl PptxParser {
                             current_bullet = None;
                             current_level = 0;
                             in_ppr = false;
-                            current_runs.clear();
-                        }
-                        // a:r - text run
-                        "r" if in_paragraph => {
-                            in_run = true;
-                            current_text.clear();
-                            current_style = TextStyle::default();
-                            current_hyperlink = None;
-                        }
-                        // a:t - text element
-                        "t" if in_run => {
-                            in_text = true;
-                        }
-                        // a:rPr - run properties
-                        "rPr" if in_run => {
-                            in_rpr = true;
-                            apply_run_properties(e, &mut current_style);
-                        }
-                        // a:hlinkClick - hyperlink (nested in a:rPr)
-                        "hlinkClick" if in_rpr => {
-                            if let Some(url) = link_address(e, rels) {
-                                current_hyperlink = Some(url);
-                            }
+                            runs.start_paragraph();
                         }
                         _ => {}
                     }
                 }
+                Ok(quick_xml::events::Event::Empty(ref e))
+                    if in_paragraph && runs.element(e, true, rels) => {}
                 Ok(quick_xml::events::Event::Empty(ref e)) => {
                     let local_name = e.name().local_name();
                     match local_name.as_ref() {
@@ -726,7 +702,7 @@ impl PptxParser {
                                 current_cell.background_image = Some(file);
                             }
                         }
-                        "pPr" if in_paragraph => {
+                        "pPr" if in_paragraph && !runs.in_run() => {
                             current_level = paragraph_level(e);
                         }
                         "blip" if in_bu_blip => {
@@ -734,55 +710,22 @@ impl PptxParser {
                                 current_bullet = Some(file);
                             }
                         }
-                        // Handle self-closing run properties
-                        "rPr" if in_run => {
-                            apply_run_properties(e, &mut current_style);
-                        }
-                        // a:hlinkClick - hyperlink (self-closing)
-                        "hlinkClick" if in_run => {
-                            if let Some(url) = link_address(e, rels) {
-                                current_hyperlink = Some(url);
-                            }
-                        }
                         _ => {}
                     }
                 }
-                Ok(quick_xml::events::Event::Text(ref e)) if in_text => {
-                    current_text.push_str(&crate::decode::decode_text_lossy(e));
+                Ok(quick_xml::events::Event::Text(ref e)) if runs.in_text() => {
+                    runs.push_text(&crate::decode::decode_text_lossy(e));
                 }
-                Ok(quick_xml::events::Event::GeneralRef(ref e)) if in_text => {
-                    current_text.push_str(&crate::decode::resolve_general_ref(e));
+                Ok(quick_xml::events::Event::GeneralRef(ref e)) if runs.in_text() => {
+                    runs.push_text(&crate::decode::resolve_general_ref(e));
                 }
+                Ok(quick_xml::events::Event::End(ref e)) if in_paragraph && runs.end(e) => {}
                 Ok(quick_xml::events::Event::End(ref e)) => {
                     let local_name = e.name().local_name();
                     match local_name.as_ref() {
-                        "t" => {
-                            in_text = false;
-                        }
-                        "rPr" => {
-                            in_rpr = false;
-                        }
-                        "r" => {
-                            if !current_text.is_empty() {
-                                current_runs.push(TextRun {
-                                    text: current_text.clone(),
-                                    style: if current_hyperlink.is_some() {
-                                        current_style.clone().in_link()
-                                    } else {
-                                        current_style.clone()
-                                    },
-                                    hyperlink: current_hyperlink.clone(),
-                                    line_break: false,
-                                    page_break: false,
-                                    revision: RevisionType::None,
-                                    note: None,
-                                });
-                            }
-                            in_run = false;
-                            current_hyperlink = None;
-                        }
                         "p" if in_txbody => {
-                            if !current_runs.is_empty() {
+                            let runs = runs.finish();
+                            if !runs.is_empty() {
                                 let list_info = current_bullet.take().map(|image| ListInfo {
                                     list_type: ListType::Bullet,
                                     level: current_level,
@@ -790,7 +733,7 @@ impl PptxParser {
                                     marker_image: Some(image),
                                 });
                                 current_paragraphs.push(Paragraph {
-                                    runs: current_runs.clone(),
+                                    runs,
                                     list_info,
                                     ..Default::default()
                                 });
@@ -877,13 +820,7 @@ impl PptxParser {
         let mut in_shape = false;
         let mut in_txbody = false;
         let mut in_paragraph = false;
-        let mut in_run = false;
-        let mut in_text = false;
-        let mut in_rpr = false;
-        let mut current_runs: Vec<TextRun> = Vec::new();
-        let mut current_text = String::new();
-        let mut current_style = TextStyle::default();
-        let mut current_hyperlink: Option<String> = None;
+        let mut runs = RunReader::default();
         let mut current_heading: HeadingLevel = HeadingLevel::None;
         // Placeholder inheritance tracking
         let mut current_ph_key: Option<String> = None;
@@ -903,6 +840,8 @@ impl PptxParser {
 
         loop {
             match reader.read_event_into(&mut buf) {
+                Ok(quick_xml::events::Event::Start(ref e))
+                    if in_paragraph && !in_table && runs.element(e, false, rels) => {}
                 Ok(quick_xml::events::Event::Start(ref e)) => {
                     let local_name = e.name().local_name();
                     match local_name.as_ref() {
@@ -930,7 +869,7 @@ impl PptxParser {
                             lst_style_level = list_style_level(name);
                         }
                         // a:pPr - paragraph properties (level, bullet)
-                        "pPr" if in_paragraph && !in_table => {
+                        "pPr" if in_paragraph && !in_table && !runs.in_run() => {
                             in_ppr = true;
                             current_level = paragraph_level(e);
                         }
@@ -962,69 +901,29 @@ impl PptxParser {
                         // a:p - paragraph (only if not in table, but in shape's txBody)
                         "p" if !in_table && in_txbody => {
                             in_paragraph = true;
-                            current_runs.clear();
+                            runs.start_paragraph();
                             in_ppr = false;
                             current_level = 0;
                             current_bullet = None;
                             bullet_overridden = false;
                         }
-                        // a:r - text run
-                        "r" if in_paragraph && !in_table => {
-                            in_run = true;
-                            current_text.clear();
-                            current_style = TextStyle::default();
-                            current_hyperlink = None;
-                        }
-                        // a:t - text element
-                        "t" if in_run && !in_table => {
-                            in_text = true;
-                        }
-                        // a:rPr - run properties
-                        "rPr" if in_run && !in_table => {
-                            in_rpr = true;
-                            apply_run_properties(e, &mut current_style);
-                        }
-                        // a:hlinkClick - hyperlink (nested in a:rPr)
-                        "hlinkClick" if in_rpr && !in_table => {
-                            if let Some(url) = link_address(e, rels) {
-                                current_hyperlink = Some(url);
-                            }
-                        }
                         // p:ph - placeholder type (for heading detection and inheritance key)
                         "ph" if in_shape && !in_table => {
-                            let mut ph_type = String::new();
-                            let mut ph_idx: Option<String> = None;
-                            for attr in e.attributes().flatten() {
-                                match attr.key.local_name().as_ref() {
-                                    "type" => {
-                                        ph_type = attr.value.to_string();
-                                        current_heading = match ph_type.as_str() {
-                                            "title" | "ctrTitle" => HeadingLevel::H1,
-                                            "subTitle" => HeadingLevel::H2,
-                                            _ => HeadingLevel::None,
-                                        };
-                                    }
-                                    "idx" => {
-                                        ph_idx = Some(attr.value.to_string());
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            current_ph_type = Some(ph_type.clone()).filter(|t| !t.is_empty());
-                            current_ph_idx = ph_idx.clone();
-                            current_ph_key = Some(if !ph_type.is_empty() {
-                                ph_type
-                            } else {
-                                format!("idx:{}", ph_idx.as_deref().unwrap_or("0"))
-                            });
+                            let placeholder = Placeholder::of(e);
+                            current_heading = placeholder.heading();
+                            current_ph_key = Some(placeholder.key());
+                            current_ph_type = placeholder.kind;
+                            current_ph_idx = placeholder.idx;
                         }
                         _ => {}
                     }
                 }
+                Ok(quick_xml::events::Event::Empty(ref e))
+                    if in_paragraph && !in_table && runs.element(e, true, rels) => {}
                 Ok(quick_xml::events::Event::Empty(ref e)) => {
                     let local_name = e.name().local_name();
                     match local_name.as_ref() {
-                        "pPr" if in_paragraph && !in_table => {
+                        "pPr" if in_paragraph && !in_table && !runs.in_run() => {
                             current_level = paragraph_level(e);
                         }
                         "buNone" | "buChar" | "buAutoNum" if in_ppr => {
@@ -1047,50 +946,23 @@ impl PptxParser {
                         }
                         // p:ph - placeholder type (self-closing)
                         "ph" if in_shape && !in_table => {
-                            let mut ph_type = String::new();
-                            let mut ph_idx: Option<String> = None;
-                            for attr in e.attributes().flatten() {
-                                match attr.key.local_name().as_ref() {
-                                    "type" => {
-                                        ph_type = attr.value.to_string();
-                                        current_heading = match ph_type.as_str() {
-                                            "title" | "ctrTitle" => HeadingLevel::H1,
-                                            "subTitle" => HeadingLevel::H2,
-                                            _ => HeadingLevel::None,
-                                        };
-                                    }
-                                    "idx" => {
-                                        ph_idx = Some(attr.value.to_string());
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            current_ph_type = Some(ph_type.clone()).filter(|t| !t.is_empty());
-                            current_ph_idx = ph_idx.clone();
-                            current_ph_key = Some(if !ph_type.is_empty() {
-                                ph_type
-                            } else {
-                                format!("idx:{}", ph_idx.as_deref().unwrap_or("0"))
-                            });
-                        }
-                        "rPr" if in_run && !in_table => {
-                            apply_run_properties(e, &mut current_style);
-                        }
-                        // a:hlinkClick - hyperlink (self-closing)
-                        "hlinkClick" if in_run && !in_table => {
-                            if let Some(url) = link_address(e, rels) {
-                                current_hyperlink = Some(url);
-                            }
+                            let placeholder = Placeholder::of(e);
+                            current_heading = placeholder.heading();
+                            current_ph_key = Some(placeholder.key());
+                            current_ph_type = placeholder.kind;
+                            current_ph_idx = placeholder.idx;
                         }
                         _ => {}
                     }
                 }
-                Ok(quick_xml::events::Event::Text(ref e)) if in_text && !in_table => {
-                    current_text.push_str(&crate::decode::decode_text_lossy(e));
+                Ok(quick_xml::events::Event::Text(ref e)) if runs.in_text() && !in_table => {
+                    runs.push_text(&crate::decode::decode_text_lossy(e));
                 }
-                Ok(quick_xml::events::Event::GeneralRef(ref e)) if in_text && !in_table => {
-                    current_text.push_str(&crate::decode::resolve_general_ref(e));
+                Ok(quick_xml::events::Event::GeneralRef(ref e)) if runs.in_text() && !in_table => {
+                    runs.push_text(&crate::decode::resolve_general_ref(e));
                 }
+                Ok(quick_xml::events::Event::End(ref e))
+                    if in_paragraph && !in_table && runs.end(e) => {}
                 Ok(quick_xml::events::Event::End(ref e)) => {
                     let local_name = e.name().local_name();
                     match local_name.as_ref() {
@@ -1099,9 +971,6 @@ impl PptxParser {
                             if table_depth == 0 {
                                 in_table = false;
                             }
-                        }
-                        "t" if !in_table => {
-                            in_text = false;
                         }
                         "pPr" => {
                             in_ppr = false;
@@ -1116,30 +985,9 @@ impl PptxParser {
                         name if in_lst_style && list_style_level(name).is_some() => {
                             lst_style_level = None;
                         }
-                        "rPr" if !in_table => {
-                            in_rpr = false;
-                        }
-                        "r" if !in_table => {
-                            if !current_text.is_empty() {
-                                current_runs.push(TextRun {
-                                    text: current_text.clone(),
-                                    style: if current_hyperlink.is_some() {
-                                        current_style.clone().in_link()
-                                    } else {
-                                        current_style.clone()
-                                    },
-                                    hyperlink: current_hyperlink.clone(),
-                                    line_break: false,
-                                    page_break: false,
-                                    revision: RevisionType::None,
-                                    note: None,
-                                });
-                            }
-                            in_run = false;
-                            current_hyperlink = None;
-                        }
                         "p" if !in_table => {
-                            if !current_runs.is_empty() {
+                            let runs = runs.finish();
+                            if !runs.is_empty() {
                                 // The paragraph's own bullet, else the shape's list style,
                                 // else what the layout and master give the placeholder.
                                 let marker_image = current_bullet.clone().or_else(|| {
@@ -1166,7 +1014,7 @@ impl PptxParser {
                                     marker_image: Some(image),
                                 });
                                 paragraphs.push(Paragraph {
-                                    runs: current_runs.clone(),
+                                    runs,
                                     heading: current_heading,
                                     list_info,
                                     ..Default::default()
@@ -1225,111 +1073,39 @@ impl PptxParser {
 
         let mut buf = Vec::new();
         let mut in_paragraph = false;
-        let mut in_run = false;
-        let mut in_text = false;
-        let mut in_rpr = false;
-        let mut current_runs: Vec<TextRun> = Vec::new();
-        let mut current_text = String::new();
-        let mut current_style = TextStyle::default();
-        let mut current_hyperlink: Option<String> = None;
+        let mut runs = RunReader::default();
 
         loop {
             match reader.read_event_into(&mut buf) {
                 Ok(quick_xml::events::Event::Start(ref e)) => {
-                    let local_name = e.name().local_name();
-                    match local_name.as_ref() {
-                        // a:p - paragraph
-                        "p" => {
-                            in_paragraph = true;
-                            current_runs.clear();
-                        }
-                        // a:r - text run
-                        "r" if in_paragraph => {
-                            in_run = true;
-                            current_text.clear();
-                            current_style = TextStyle::default();
-                            current_hyperlink = None;
-                        }
-                        // a:t - text element
-                        "t" if in_run => {
-                            in_text = true;
-                        }
-                        // a:rPr - run properties
-                        "rPr" if in_run => {
-                            in_rpr = true;
-                            // Parse run properties for styling
-                            apply_run_properties(e, &mut current_style);
-                        }
-                        // a:hlinkClick - hyperlink (nested in a:rPr)
-                        "hlinkClick" if in_rpr => {
-                            if let Some(url) = link_address(e, rels) {
-                                current_hyperlink = Some(url);
-                            }
-                        }
-                        _ => {}
+                    if e.name().local_name().as_ref() == "p" {
+                        in_paragraph = true;
+                        runs.start_paragraph();
+                    } else if in_paragraph {
+                        runs.element(e, false, rels);
                     }
                 }
-                Ok(quick_xml::events::Event::Empty(ref e)) => {
-                    let local_name = e.name().local_name();
-                    match local_name.as_ref() {
-                        // Handle self-closing run properties
-                        "rPr" if in_run => {
-                            apply_run_properties(e, &mut current_style);
-                        }
-                        // a:hlinkClick - hyperlink (self-closing)
-                        "hlinkClick" if in_run => {
-                            if let Some(url) = link_address(e, rels) {
-                                current_hyperlink = Some(url);
-                            }
-                        }
-                        _ => {}
-                    }
+                Ok(quick_xml::events::Event::Empty(ref e)) if in_paragraph => {
+                    runs.element(e, true, rels);
                 }
-                Ok(quick_xml::events::Event::Text(ref e)) if in_text => {
-                    current_text.push_str(&crate::decode::decode_text_lossy(e));
+                Ok(quick_xml::events::Event::Text(ref e)) if runs.in_text() => {
+                    runs.push_text(&crate::decode::decode_text_lossy(e));
                 }
-                Ok(quick_xml::events::Event::GeneralRef(ref e)) if in_text => {
-                    current_text.push_str(&crate::decode::resolve_general_ref(e));
+                Ok(quick_xml::events::Event::GeneralRef(ref e)) if runs.in_text() => {
+                    runs.push_text(&crate::decode::resolve_general_ref(e));
                 }
                 Ok(quick_xml::events::Event::End(ref e)) => {
-                    let local_name = e.name().local_name();
-                    match local_name.as_ref() {
-                        "t" => {
-                            in_text = false;
+                    if e.name().local_name().as_ref() == "p" {
+                        let runs = runs.finish();
+                        if !runs.is_empty() {
+                            paragraphs.push(Paragraph {
+                                runs,
+                                ..Default::default()
+                            });
                         }
-                        "rPr" => {
-                            in_rpr = false;
-                        }
-                        "r" => {
-                            if !current_text.is_empty() {
-                                current_runs.push(TextRun {
-                                    text: current_text.clone(),
-                                    style: if current_hyperlink.is_some() {
-                                        current_style.clone().in_link()
-                                    } else {
-                                        current_style.clone()
-                                    },
-                                    hyperlink: current_hyperlink.clone(),
-                                    line_break: false,
-                                    page_break: false,
-                                    revision: RevisionType::None,
-                                    note: None,
-                                });
-                            }
-                            in_run = false;
-                            current_hyperlink = None;
-                        }
-                        "p" => {
-                            // Only add non-empty paragraphs
-                            if !current_runs.is_empty() {
-                                paragraphs.push(Paragraph {
-                                    runs: current_runs.clone(),
-                                    ..Default::default()
-                                });
-                            }
-                            in_paragraph = false;
-                        }
-                        _ => {}
+                        in_paragraph = false;
+                    } else {
+                        runs.end(e);
                     }
                 }
                 Ok(quick_xml::events::Event::Eof) => break,
@@ -1378,13 +1154,13 @@ impl PptxParser {
         if let Some(master_rel) = layout_full_rels.get_by_type(SLIDE_MASTER_TYPE).first() {
             let master_path = OoxmlContainer::resolve_path(&layout_path, &master_rel.target);
             if let Some(master_xml) = self.container.read_xml_optional(&master_path)? {
-                inherited = parse_placeholder_texts_from_xml(&master_xml);
+                inherited = parse_placeholder_texts_from_xml(&master_xml)?;
             }
         }
 
         if let Some(layout_xml) = self.container.read_xml_optional(&layout_path)? {
             // Layout overrides master
-            for (key, paras) in parse_placeholder_texts_from_xml(&layout_xml) {
+            for (key, paras) in parse_placeholder_texts_from_xml(&layout_xml)? {
                 inherited.insert(key, paras);
             }
         }
@@ -1606,176 +1382,113 @@ impl PptxParser {
 /// Parse placeholder texts from a layout or master XML.
 /// Returns ph_key → Vec<Paragraph> for non-empty placeholder shapes.
 /// ph_key = ph type (e.g. "title") if set, else "idx:<N>".
-fn parse_placeholder_texts_from_xml(xml: &str) -> HashMap<String, Vec<Paragraph>> {
+fn parse_placeholder_texts_from_xml(xml: &str) -> Result<HashMap<String, Vec<Paragraph>>> {
     let mut result: HashMap<String, Vec<Paragraph>> = HashMap::new();
 
     let mut reader = crate::decode::reader_for(xml);
     reader.config_mut().trim_text(false);
     let mut buf = Vec::new();
 
+    // A layout's and master's text links nowhere a slide's reader resolves: their links
+    // are their own parts' relationships.
+    let no_links = HashMap::new();
     let mut in_shape = false;
     let mut in_table = false;
     let mut table_depth = 0u32;
     let mut in_txbody = false;
     let mut in_paragraph = false;
-    let mut in_run = false;
-    let mut in_text = false;
+    let mut runs = RunReader::default();
     let mut current_ph_key: Option<String> = None;
-    let mut current_runs: Vec<TextRun> = Vec::new();
-    let mut current_text = String::new();
     let mut current_heading = HeadingLevel::None;
     let mut shape_paragraphs: Vec<Paragraph> = Vec::new();
 
     loop {
         match reader.read_event_into(&mut buf) {
-            Ok(quick_xml::events::Event::Start(ref e)) => {
-                let local = e.name().local_name();
-                match local.as_ref() {
-                    "tbl" => {
-                        in_table = true;
-                        table_depth += 1;
+            Ok(quick_xml::events::Event::Start(ref e))
+                if in_paragraph && !in_table && runs.element(e, false, &no_links) => {}
+            Ok(quick_xml::events::Event::Start(ref e)) => match e.name().local_name().as_ref() {
+                "tbl" => {
+                    in_table = true;
+                    table_depth += 1;
+                }
+                "sp" if !in_table => {
+                    in_shape = true;
+                    current_ph_key = None;
+                    current_heading = HeadingLevel::None;
+                    shape_paragraphs.clear();
+                }
+                "txBody" if in_shape && !in_table => {
+                    in_txbody = true;
+                }
+                "p" if in_txbody && !in_table => {
+                    in_paragraph = true;
+                    runs.start_paragraph();
+                }
+                "ph" if in_shape && !in_table => {
+                    let placeholder = Placeholder::of(e);
+                    current_heading = placeholder.heading();
+                    current_ph_key = Some(placeholder.key());
+                }
+                _ => {}
+            },
+            Ok(quick_xml::events::Event::Empty(ref e))
+                if in_paragraph && !in_table && runs.element(e, true, &no_links) => {}
+            Ok(quick_xml::events::Event::Empty(ref e)) => {
+                if e.name().local_name().as_ref() == "ph" && in_shape && !in_table {
+                    let placeholder = Placeholder::of(e);
+                    current_heading = placeholder.heading();
+                    current_ph_key = Some(placeholder.key());
+                }
+            }
+            Ok(quick_xml::events::Event::Text(ref e)) if runs.in_text() && !in_table => {
+                runs.push_text(&crate::decode::decode_text_lossy(e));
+            }
+            Ok(quick_xml::events::Event::GeneralRef(ref e)) if runs.in_text() && !in_table => {
+                runs.push_text(&crate::decode::resolve_general_ref(e));
+            }
+            Ok(quick_xml::events::Event::End(ref e))
+                if in_paragraph && !in_table && runs.end(e) => {}
+            Ok(quick_xml::events::Event::End(ref e)) => match e.name().local_name().as_ref() {
+                "tbl" => {
+                    table_depth -= 1;
+                    if table_depth == 0 {
+                        in_table = false;
                     }
-                    "sp" if !in_table => {
-                        in_shape = true;
-                        current_ph_key = None;
-                        current_heading = HeadingLevel::None;
-                        shape_paragraphs.clear();
-                    }
-                    "txBody" if in_shape && !in_table => {
-                        in_txbody = true;
-                    }
-                    "p" if in_txbody && !in_table => {
-                        in_paragraph = true;
-                        current_runs.clear();
-                    }
-                    "r" if in_paragraph && !in_table => {
-                        in_run = true;
-                        current_text.clear();
-                    }
-                    "t" if in_run && !in_table => {
-                        in_text = true;
-                    }
-                    "ph" if in_shape && !in_table => {
-                        let mut ph_type = String::new();
-                        let mut ph_idx: Option<String> = None;
-                        for attr in e.attributes().flatten() {
-                            match attr.key.local_name().as_ref() {
-                                "type" => {
-                                    ph_type = attr.value.to_string();
-                                    current_heading = match ph_type.as_str() {
-                                        "title" | "ctrTitle" => HeadingLevel::H1,
-                                        "subTitle" => HeadingLevel::H2,
-                                        _ => HeadingLevel::None,
-                                    };
-                                }
-                                "idx" => {
-                                    ph_idx = Some(attr.value.to_string());
-                                }
-                                _ => {}
-                            }
-                        }
-                        current_ph_key = Some(if !ph_type.is_empty() {
-                            ph_type
-                        } else {
-                            format!("idx:{}", ph_idx.as_deref().unwrap_or("0"))
+                }
+                "p" if !in_table => {
+                    let runs = runs.finish();
+                    if !runs.is_empty() {
+                        shape_paragraphs.push(Paragraph {
+                            runs,
+                            heading: current_heading,
+                            ..Default::default()
                         });
                     }
-                    _ => {}
+                    in_paragraph = false;
                 }
-            }
-            Ok(quick_xml::events::Event::Empty(ref e)) => {
-                let local = e.name().local_name();
-                if local.as_ref() == "ph" && in_shape && !in_table {
-                    let mut ph_type = String::new();
-                    let mut ph_idx: Option<String> = None;
-                    for attr in e.attributes().flatten() {
-                        match attr.key.local_name().as_ref() {
-                            "type" => {
-                                ph_type = attr.value.to_string();
-                                current_heading = match ph_type.as_str() {
-                                    "title" | "ctrTitle" => HeadingLevel::H1,
-                                    "subTitle" => HeadingLevel::H2,
-                                    _ => HeadingLevel::None,
-                                };
-                            }
-                            "idx" => {
-                                ph_idx = Some(attr.value.to_string());
-                            }
-                            _ => {}
-                        }
-                    }
-                    current_ph_key = Some(if !ph_type.is_empty() {
-                        ph_type
-                    } else {
-                        format!("idx:{}", ph_idx.as_deref().unwrap_or("0"))
-                    });
+                "txBody" if !in_table => {
+                    in_txbody = false;
                 }
-            }
-            Ok(quick_xml::events::Event::Text(ref e)) if in_text && !in_table => {
-                current_text.push_str(&crate::decode::decode_text_lossy(e));
-            }
-            Ok(quick_xml::events::Event::GeneralRef(ref e)) if in_text && !in_table => {
-                current_text.push_str(&crate::decode::resolve_general_ref(e));
-            }
-            Ok(quick_xml::events::Event::End(ref e)) => {
-                let local = e.name().local_name();
-                match local.as_ref() {
-                    "tbl" => {
-                        table_depth -= 1;
-                        if table_depth == 0 {
-                            in_table = false;
+                "sp" if !in_table => {
+                    // Only store non-empty shapes with a placeholder key
+                    if let Some(ph_key) = current_ph_key.take() {
+                        if !shape_paragraphs.is_empty() {
+                            result.insert(ph_key, shape_paragraphs.clone());
                         }
                     }
-                    "t" if !in_table => {
-                        in_text = false;
-                    }
-                    "r" if !in_table => {
-                        if !current_text.is_empty() {
-                            current_runs.push(TextRun {
-                                text: current_text.clone(),
-                                style: TextStyle::default(),
-                                hyperlink: None,
-                                line_break: false,
-                                page_break: false,
-                                revision: RevisionType::None,
-                                note: None,
-                            });
-                        }
-                        in_run = false;
-                    }
-                    "p" if !in_table => {
-                        if !current_runs.is_empty() {
-                            shape_paragraphs.push(Paragraph {
-                                runs: current_runs.clone(),
-                                heading: current_heading,
-                                ..Default::default()
-                            });
-                        }
-                        in_paragraph = false;
-                    }
-                    "txBody" if !in_table => {
-                        in_txbody = false;
-                    }
-                    "sp" if !in_table => {
-                        // Only store non-empty shapes with a placeholder key
-                        if let Some(ph_key) = current_ph_key.take() {
-                            if !shape_paragraphs.is_empty() {
-                                result.insert(ph_key, shape_paragraphs.clone());
-                            }
-                        }
-                        in_shape = false;
-                        current_heading = HeadingLevel::None;
-                    }
-                    _ => {}
+                    in_shape = false;
+                    current_heading = HeadingLevel::None;
                 }
-            }
+                _ => {}
+            },
             Ok(quick_xml::events::Event::Eof) => break,
+            Err(e) => return Err(e.into()),
             _ => {}
         }
         buf.clear();
     }
 
-    result
+    Ok(result)
 }
 
 /// A picture's description (`p:cNvPr descr`) — its alt text — if it has a non-blank one.
@@ -1895,6 +1608,165 @@ fn apply_run_properties(e: &quick_xml::events::BytesStart<'_>, style: &mut TextS
             "u" => style.underline = val != "none",
             "strike" => style.strikethrough = val != "noStrike" && val != "0" && val != "false",
             _ => {}
+        }
+    }
+}
+
+/// The runs of the paragraph being read. Every reader of a deck's text -- a shape's, a table
+/// cell's, the notes', the placeholders' a layout and master give -- reads a paragraph's runs
+/// through this one, so what one of them understands of a run they all do. (Three copies
+/// had once kept apart a table cell's formatting; none of the four read a line break or a
+/// field.)
+#[derive(Default)]
+struct RunReader {
+    runs: Vec<TextRun>,
+    in_run: bool,
+    in_text: bool,
+    text: String,
+    style: TextStyle,
+    hyperlink: Option<String>,
+}
+
+impl RunReader {
+    /// Start reading a new paragraph.
+    fn start_paragraph(&mut self) {
+        *self = Self::default();
+    }
+
+    /// Whether a run or a field is open: an `a:pPr` inside one is not the paragraph's.
+    fn in_run(&self) -> bool {
+        self.in_run
+    }
+
+    /// Whether text read now is a run's.
+    fn in_text(&self) -> bool {
+        self.in_text
+    }
+
+    /// Read an element opened -- or self-closed, when `empty` -- inside the paragraph, and say
+    /// whether it was one of the runs'.
+    fn element(
+        &mut self,
+        e: &quick_xml::events::BytesStart<'_>,
+        empty: bool,
+        rels: &HashMap<String, String>,
+    ) -> bool {
+        match e.name().local_name().as_ref() {
+            // A field (`a:fld` -- a slide number, a date) is a run whose text the application
+            // keeps up to date; the value it last showed is its `a:t`.
+            "r" | "fld" if !empty => {
+                self.in_run = true;
+                self.in_text = false;
+                self.text.clear();
+                self.style = TextStyle::default();
+                self.hyperlink = None;
+            }
+            "t" if self.in_run && !empty => self.in_text = true,
+            "rPr" if self.in_run => apply_run_properties(e, &mut self.style),
+            "hlinkClick" if self.in_run => {
+                if let Some(url) = link_address(e, rels) {
+                    self.hyperlink = Some(url);
+                }
+            }
+            // A line break inside the paragraph ends the line of the run before it.
+            "br" if !self.in_run => match self.runs.last_mut() {
+                Some(run) => run.line_break = true,
+                None => self.runs.push(TextRun {
+                    text: String::new(),
+                    line_break: true,
+                    ..TextRun::default()
+                }),
+            },
+            _ => return false,
+        }
+        true
+    }
+
+    /// Text inside the open `a:t`.
+    fn push_text(&mut self, text: &str) {
+        self.text.push_str(text);
+    }
+
+    /// Read an element's end, and say whether it was one of the runs'.
+    fn end(&mut self, e: &quick_xml::events::BytesEnd<'_>) -> bool {
+        match e.name().local_name().as_ref() {
+            "t" if self.in_run => self.in_text = false,
+            "r" | "fld" if self.in_run => {
+                if !self.text.is_empty() {
+                    let hyperlink = self.hyperlink.take();
+                    let style = std::mem::take(&mut self.style);
+                    self.runs.push(TextRun {
+                        text: std::mem::take(&mut self.text),
+                        style: if hyperlink.is_some() {
+                            style.in_link()
+                        } else {
+                            style
+                        },
+                        hyperlink,
+                        ..TextRun::default()
+                    });
+                }
+                self.in_run = false;
+                self.in_text = false;
+                self.hyperlink = None;
+            }
+            _ => return false,
+        }
+        true
+    }
+
+    /// The paragraph's runs, read to its end: none when it holds no text (a line break
+    /// alone is no content), and no break after its last line.
+    fn finish(&mut self) -> Vec<TextRun> {
+        let mut runs = std::mem::take(&mut self.runs);
+        if runs.iter().all(|run| run.text.is_empty()) {
+            return Vec::new();
+        }
+        while runs.last().is_some_and(|run| run.text.is_empty()) {
+            runs.pop();
+        }
+        if let Some(last) = runs.last_mut() {
+            last.line_break = false;
+        }
+        runs
+    }
+}
+
+/// A shape's placeholder (`p:ph`): its type and index.
+struct Placeholder {
+    kind: Option<String>,
+    idx: Option<String>,
+}
+
+impl Placeholder {
+    fn of(e: &quick_xml::events::BytesStart<'_>) -> Self {
+        let mut kind = None;
+        let mut idx = None;
+        for attr in e.attributes().flatten() {
+            match attr.key.local_name().as_ref() {
+                "type" => kind = Some(crate::decode::attr_value(&attr)).filter(|t| !t.is_empty()),
+                "idx" => idx = Some(crate::decode::attr_value(&attr)),
+                _ => {}
+            }
+        }
+        Self { kind, idx }
+    }
+
+    /// The heading a placeholder of this type makes of its text.
+    fn heading(&self) -> HeadingLevel {
+        match self.kind.as_deref() {
+            Some("title" | "ctrTitle") => HeadingLevel::H1,
+            Some("subTitle") => HeadingLevel::H2,
+            _ => HeadingLevel::None,
+        }
+    }
+
+    /// The key a layout's and master's text for this placeholder is kept under: its type, or
+    /// its index for one that has none.
+    fn key(&self) -> String {
+        match &self.kind {
+            Some(kind) => kind.clone(),
+            None => format!("idx:{}", self.idx.as_deref().unwrap_or("0")),
         }
     }
 }
@@ -2362,6 +2234,58 @@ mod tests {
         assert!(link.hyperlink.is_some() && !link.style.underline);
         let marked = runs.iter().find(|r| r.text == "marked").unwrap();
         assert!(marked.style.underline);
+    }
+
+    /// A line break inside a paragraph (`a:br`) ends the line of the run before it, and a
+    /// field (`a:fld` -- a slide number, a date) is read as a run of the value it last showed,
+    /// formatting and all; a field's own `a:pPr` is not the paragraph's.
+    #[test]
+    fn test_a_line_break_and_a_field_are_read_in_shape_text() {
+        let shape = r#"<p:sp><p:nvSpPr><p:cNvPr id="2" name="Body"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:txBody><a:bodyPr/><a:p><a:r><a:t>First line</a:t></a:r><a:br><a:rPr lang="en-US"/></a:br><a:r><a:t>Second line</a:t></a:r></a:p><a:p><a:r><a:t>Slide </a:t></a:r><a:fld id="{6A1B}" type="slidenum"><a:rPr b="1"/><a:pPr lvl="3"/><a:t>7</a:t></a:fld></a:p></p:txBody></p:sp>"#;
+        let data = deck(&[(&slide(shape), EMPTY_RELS)], &[]);
+        let doc = PptxParser::from_bytes(data).unwrap().parse().unwrap();
+        let paras = paragraphs(&doc.sections[0]);
+        assert_eq!(paras.len(), 2, "{paras:?}");
+        let first: Vec<(&str, bool)> = paras[0]
+            .runs
+            .iter()
+            .map(|r| (r.text.as_str(), r.line_break))
+            .collect();
+        assert_eq!(first, [("First line", true), ("Second line", false)]);
+        let field = paras[1].runs.iter().find(|r| r.text == "7").unwrap();
+        assert!(field.style.bold);
+        assert_eq!(paras[1].plain_text(), "Slide 7");
+    }
+
+    /// A table cell's paragraphs read line breaks and fields as a text box's do.
+    #[test]
+    fn test_a_table_cell_reads_line_breaks_and_fields() {
+        let table = r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="4" name="Table"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl><a:tr h="370840"><a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t>Top</a:t></a:r><a:br/><a:r><a:t>Bottom</a:t></a:r></a:p></a:txBody></a:tc><a:tc><a:txBody><a:bodyPr/><a:p><a:fld id="{7C2D}" type="datetime1"><a:t>10/13/2026</a:t></a:fld></a:p></a:txBody></a:tc></a:tr></a:tbl></a:graphicData></a:graphic></p:graphicFrame>"#;
+        let data = deck(&[(&slide(table), EMPTY_RELS)], &[]);
+        let doc = PptxParser::from_bytes(data).unwrap().parse().unwrap();
+        let cells: Vec<&Cell> = doc.sections[0]
+            .content
+            .iter()
+            .filter_map(|block| match block {
+                crate::model::Block::Table(t) => Some(t),
+                _ => None,
+            })
+            .flat_map(|t| t.rows.iter())
+            .flat_map(|row| row.cells.iter())
+            .collect();
+        let first = &cells[0].content[0].runs;
+        assert_eq!(first[0].text, "Top");
+        assert!(first[0].line_break && !first[1].line_break);
+        assert_eq!(cells[1].content[0].plain_text(), "10/13/2026");
+    }
+
+    /// Notes read fields too: a note's slide-number field is text, not nothing.
+    #[test]
+    fn test_notes_read_a_field() {
+        let notes = r#"<p:notes xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>See slide </a:t></a:r><a:fld id="{1}" type="slidenum"><a:t>3</a:t></a:fld></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:notes>"#;
+        let paras = empty_parser().parse_notes(notes).unwrap();
+        assert_eq!(paras.len(), 1);
+        assert_eq!(paras[0].plain_text(), "See slide 3");
     }
 
     /// The media a slide references is listed, typed by its extension; a media part no
