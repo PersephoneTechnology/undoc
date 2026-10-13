@@ -141,3 +141,14 @@ fn a_link_in_a_table_cell_is_a_link() {
     );
     assert!(!md.contains("<u>"), "{md}");
 }
+
+/// A `HYPERLINK \l` field leads to a bookmark in the document: no anchor in the output to
+/// point at, so the text is written as text -- and not underlined.
+#[test]
+fn a_hyperlink_field_to_a_bookmark_is_text() {
+    let md = markdown(&format!(
+        r#"<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> HYPERLINK \l "_Toc1" </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>{LINK_RUN}<w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>"#
+    ));
+    assert!(md.contains("download page"), "{md}");
+    assert!(!md.contains("](") && !md.contains("<u>"), "{md}");
+}

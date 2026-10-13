@@ -262,6 +262,8 @@ struct Assembler<'a> {
     runs: Vec<TextRun>,
     text: String,
     hyperlink: Option<String>,
+    /// Whether the text being read is a link's -- to an address (`hyperlink`) or to a bookmark.
+    in_link: bool,
     fields: Vec<OpenField>,
     /// The table being read: finished rows, the row being read, the cell being read.
     rows: Vec<Row>,
@@ -295,6 +297,7 @@ impl<'a> Assembler<'a> {
             runs: Vec::new(),
             text: String::new(),
             hyperlink: None,
+            in_link: false,
             fields: Vec::new(),
             rows: Vec::new(),
             cells: Vec::new(),
@@ -415,10 +418,15 @@ impl<'a> Assembler<'a> {
             return;
         };
         field.in_result = true;
-        if let Some(url) = crate::fields::hyperlink_target(&field.instruction) {
+        if let Some(target) = crate::fields::hyperlink_target(&field.instruction) {
             field.hyperlink = true;
             self.flush_run();
-            self.hyperlink = Some(url);
+            self.in_link = true;
+            // A bookmark in the document has no anchor in the output to point at.
+            self.hyperlink = match target {
+                crate::fields::LinkTarget::Address(address) => Some(address),
+                crate::fields::LinkTarget::Bookmark(_) => None,
+            };
         }
     }
 
@@ -427,6 +435,7 @@ impl<'a> Assembler<'a> {
             if field.hyperlink {
                 self.flush_run();
                 self.hyperlink = None;
+                self.in_link = false;
             }
         }
     }
@@ -449,7 +458,7 @@ impl<'a> Assembler<'a> {
                 ..TextStyle::default()
             },
         );
-        if self.hyperlink.is_some() {
+        if self.in_link {
             run.style = run.style.in_link();
         }
         run.hyperlink = self.hyperlink.clone();

@@ -714,13 +714,8 @@ impl PptxParser {
                         }
                         // a:hlinkClick - hyperlink (nested in a:rPr)
                         "hlinkClick" if in_rpr => {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == "id" {
-                                    let rel_id = attr.value.as_ref();
-                                    if let Some(url) = rels.get(rel_id) {
-                                        current_hyperlink = Some(url.clone());
-                                    }
-                                }
+                            if let Some(url) = link_address(e, rels) {
+                                current_hyperlink = Some(url);
                             }
                         }
                         _ => {}
@@ -769,13 +764,8 @@ impl PptxParser {
                         }
                         // a:hlinkClick - hyperlink (self-closing)
                         "hlinkClick" if in_run => {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == "id" {
-                                    let rel_id = attr.value.as_ref();
-                                    if let Some(url) = rels.get(rel_id) {
-                                        current_hyperlink = Some(url.clone());
-                                    }
-                                }
+                            if let Some(url) = link_address(e, rels) {
+                                current_hyperlink = Some(url);
                             }
                         }
                         _ => {}
@@ -1041,13 +1031,8 @@ impl PptxParser {
                         }
                         // a:hlinkClick - hyperlink (nested in a:rPr)
                         "hlinkClick" if in_rpr && !in_table => {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == "id" {
-                                    let rel_id = attr.value.as_ref();
-                                    if let Some(url) = rels.get(rel_id) {
-                                        current_hyperlink = Some(url.clone());
-                                    }
-                                }
+                            if let Some(url) = link_address(e, rels) {
+                                current_hyperlink = Some(url);
                             }
                         }
                         // p:ph - placeholder type (for heading detection and inheritance key)
@@ -1159,13 +1144,8 @@ impl PptxParser {
                         }
                         // a:hlinkClick - hyperlink (self-closing)
                         "hlinkClick" if in_run && !in_table => {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == "id" {
-                                    let rel_id = attr.value.as_ref();
-                                    if let Some(url) = rels.get(rel_id) {
-                                        current_hyperlink = Some(url.clone());
-                                    }
-                                }
+                            if let Some(url) = link_address(e, rels) {
+                                current_hyperlink = Some(url);
                             }
                         }
                         _ => {}
@@ -1369,13 +1349,8 @@ impl PptxParser {
                         }
                         // a:hlinkClick - hyperlink (nested in a:rPr)
                         "hlinkClick" if in_rpr => {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == "id" {
-                                    let rel_id = attr.value.as_ref();
-                                    if let Some(url) = rels.get(rel_id) {
-                                        current_hyperlink = Some(url.clone());
-                                    }
-                                }
+                            if let Some(url) = link_address(e, rels) {
+                                current_hyperlink = Some(url);
                             }
                         }
                         _ => {}
@@ -1411,13 +1386,8 @@ impl PptxParser {
                         }
                         // a:hlinkClick - hyperlink (self-closing)
                         "hlinkClick" if in_run => {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.local_name().as_ref() == "id" {
-                                    let rel_id = attr.value.as_ref();
-                                    if let Some(url) = rels.get(rel_id) {
-                                        current_hyperlink = Some(url.clone());
-                                    }
-                                }
+                            if let Some(url) = link_address(e, rels) {
+                                current_hyperlink = Some(url);
                             }
                         }
                         _ => {}
@@ -2021,6 +1991,31 @@ fn is_true(value: &str) -> bool {
     value == "1" || value == "true"
 }
 
+/// The address an `a:hlinkClick` links its text to: the target of the relationship it names.
+/// A jump to another slide of the deck (`ppaction://hlinksldjump`, `ppaction://hlinkshowjump`)
+/// leads to no address the output can point at, and is no link.
+fn link_address(
+    e: &quick_xml::events::BytesStart<'_>,
+    rels: &HashMap<String, String>,
+) -> Option<String> {
+    let mut id = None;
+    let mut action = None;
+    for attr in e.attributes().flatten() {
+        match attr.key.local_name().as_ref() {
+            "id" => id = Some(crate::decode::attr_value(&attr)),
+            "action" => action = Some(crate::decode::attr_value(&attr)),
+            _ => {}
+        }
+    }
+    let jumps_within = action.is_some_and(|a| {
+        a.starts_with("ppaction://hlinksldjump") || a.starts_with("ppaction://hlinkshowjump")
+    });
+    if jumps_within {
+        return None;
+    }
+    rels.get(&id?).cloned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2384,6 +2379,25 @@ mod tests {
             .find(|r| r.text == "the spec")
             .expect("the linked run");
         assert_eq!(run.hyperlink.as_deref(), Some("https://example.com/spec"));
+    }
+
+    /// A link that jumps to another slide of the deck leads to no address the output can
+    /// point at: its text is no link.
+    #[test]
+    fn test_a_jump_to_another_slide_is_no_link() {
+        let shape = r#"<p:sp><p:nvSpPr><p:cNvPr id="2" name="Link"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:txBody><a:bodyPr/><a:p><a:r><a:rPr><a:hlinkClick r:id="rIdSlide" action="ppaction://hlinksldjump"/></a:rPr><a:t>see slide 3</a:t></a:r></a:p></p:txBody></p:sp>"#;
+        let rels = r#"<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rIdSlide" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slide3.xml"/>
+</Relationships>"#;
+        let data = deck(&[(&slide(shape), rels)], &[]);
+        let doc = PptxParser::from_bytes(data).unwrap().parse().unwrap();
+        let run = paragraphs(&doc.sections[0])
+            .iter()
+            .flat_map(|p| p.runs.iter())
+            .find(|r| r.text == "see slide 3")
+            .expect("the run");
+        assert_eq!(run.hyperlink, None);
     }
 
     /// A linked run's underline is how the link looks, not the author's emphasis; an

@@ -1,8 +1,18 @@
 //! Word field instructions shared by the formats that carry them (`.docx` and `.doc`).
 
+/// Where a hyperlink leads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum LinkTarget {
+    /// An address outside the document: a URL or a file.
+    Address(String),
+    /// A bookmark in the same document. The output has no anchors to point at, so such a link
+    /// is not written as one -- its text is still a link's (see `TextStyle::in_link`).
+    Bookmark(String),
+}
+
 /// The target of a `HYPERLINK` field instruction: `HYPERLINK "url"`, or `HYPERLINK \l "name"`
 /// for a bookmark in the same document.
-pub(crate) fn hyperlink_target(instruction: &str) -> Option<String> {
+pub(crate) fn hyperlink_target(instruction: &str) -> Option<LinkTarget> {
     let rest = instruction.trim_start().strip_prefix("HYPERLINK")?;
     let mut url = None;
     let mut bookmark = false;
@@ -35,7 +45,11 @@ pub(crate) fn hyperlink_target(instruction: &str) -> Option<String> {
         }
     }
     let url = url.filter(|u| !u.is_empty())?;
-    Some(if bookmark { format!("#{url}") } else { url })
+    Some(if bookmark {
+        LinkTarget::Bookmark(url)
+    } else {
+        LinkTarget::Address(url)
+    })
 }
 
 #[cfg(test)]
@@ -45,16 +59,16 @@ mod tests {
     #[test]
     fn hyperlink_targets_are_read_from_the_instruction() {
         assert_eq!(
-            hyperlink_target(" HYPERLINK \"https://example.com/a b\" ").as_deref(),
-            Some("https://example.com/a b")
+            hyperlink_target(" HYPERLINK \"https://example.com/a b\" "),
+            Some(LinkTarget::Address("https://example.com/a b".into()))
         );
         assert_eq!(
-            hyperlink_target("HYPERLINK \\l \"_Toc1\"").as_deref(),
-            Some("#_Toc1")
+            hyperlink_target("HYPERLINK \\l \"_Toc1\""),
+            Some(LinkTarget::Bookmark("_Toc1".into()))
         );
         assert_eq!(
-            hyperlink_target("HYPERLINK https://example.com").as_deref(),
-            Some("https://example.com")
+            hyperlink_target("HYPERLINK https://example.com"),
+            Some(LinkTarget::Address("https://example.com".into()))
         );
         assert_eq!(hyperlink_target(" PAGEREF _Toc1 \\h "), None);
     }

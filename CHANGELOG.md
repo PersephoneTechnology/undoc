@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **A link to a place in the same document is written as text in every format.** A `.doc`
+  link to a bookmark (a table of contents entry, `HYPERLINK \l`) was written as
+  `[Heading](#_Toc1)`, and a slide's link to another slide of the deck as `[text](slide3.xml)` —
+  links to anchors the output does not have. They are now text, as a `.docx` bookmark link
+  already was; their text is still not underlined.
+
 ## [0.24.0] - 2026-10-13
 
 ### Removed

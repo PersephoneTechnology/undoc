@@ -1645,8 +1645,8 @@ fn link_state(element: &Option<Option<String>>, fields: &[WordField]) -> (bool, 
         .filter(|f| f.in_result)
         .find_map(|f| crate::fields::hyperlink_target(&f.instruction))
     {
-        Some(target) if target.starts_with('#') => (true, None),
-        Some(target) => (true, Some(target)),
+        Some(crate::fields::LinkTarget::Address(address)) => (true, Some(address)),
+        Some(crate::fields::LinkTarget::Bookmark(_)) => (true, None),
         None => (false, None),
     }
 }
