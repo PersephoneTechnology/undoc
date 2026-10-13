@@ -1,6 +1,7 @@
 //! What a Word 6.0 or Word 95 document keeps differently from Word 97: text one byte per
 //! character in the document's code page, and the font table that names that code page.
 
+use super::chars::{toggle, CharProps, ChpxIndex};
 use super::fib::FcLcb;
 use super::props::{PapxIndex, ParaProps, StyleInfo};
 use super::text::{self, DocChar, Piece};
@@ -417,4 +418,139 @@ pub(super) fn read_styles(word_document: &[u8], stsh: FcLcb, codepage: u16) -> V
         styles.push(StyleInfo { sti, name });
     }
     styles
+}
+
+/// Character sprms -- one byte each in Word 6.0.
+const SPRM_C_F_STRIKE_RM: u8 = 65;
+const SPRM_C_F_R_MARK: u8 = 66;
+const SPRM_C_F_BOLD: u8 = 85;
+const SPRM_C_F_ITALIC: u8 = 86;
+const SPRM_C_F_STRIKE: u8 = 87;
+const SPRM_C_F_VANISH: u8 = 92;
+const SPRM_C_KUL: u8 = 94;
+const SPRM_C_ISS: u8 = 104;
+
+/// The character properties of a Word 6.0 document: its `PlcfBteChpx` (stream offsets, then
+/// 16-bit page numbers) and the pages it points at, laid out as Word 97's but with one-byte
+/// sprms. Like the paragraph properties, damage gives plain text rather than an error.
+///
+/// Runs are keyed by stream offset; in a double-byte code page the characters after a
+/// two-byte one stand a little ahead of their bytes, so their formatting may start late.
+pub(super) fn read_chpx(word_document: &[u8], plc: FcLcb) -> ChpxIndex {
+    let start = plc.fc as usize;
+    let Some(data) = start
+        .checked_add(plc.lcb as usize)
+        .and_then(|end| word_document.get(start..end))
+    else {
+        return ChpxIndex::default();
+    };
+    if data.len() < 4 || (data.len() - 4) % 6 != 0 {
+        return ChpxIndex::default();
+    }
+    let n = (data.len() - 4) / 6;
+    let mut runs = Vec::new();
+    for i in 0..n {
+        let at = 4 * (n + 1) + i * 2;
+        let pn = u16::from_le_bytes([data[at], data[at + 1]]) as usize;
+        let Some(page) = word_document.get(pn * FKP_SIZE..(pn + 1) * FKP_SIZE) else {
+            continue;
+        };
+        let crun = page[FKP_SIZE - 1] as usize;
+        if 4 * (crun + 1) + crun > FKP_SIZE - 1 {
+            continue;
+        }
+        let fc = |k: usize| u32::from_le_bytes(page[k * 4..k * 4 + 4].try_into().unwrap());
+        for r in 0..crun {
+            let mut props = CharProps::default();
+            let at = page[4 * (crun + 1) + r] as usize * 2;
+            if at != 0 {
+                let cb = page.get(at).copied().unwrap_or(0) as usize;
+                if let Some(grpprl) = page.get(at + 1..at + 1 + cb) {
+                    for_each_sprm(grpprl, |sprm, op| match sprm {
+                        SPRM_C_F_BOLD => props.bold = toggle(op),
+                        SPRM_C_F_ITALIC => props.italic = toggle(op),
+                        SPRM_C_F_STRIKE => props.strike = toggle(op),
+                        SPRM_C_F_VANISH => props.hidden = toggle(op),
+                        SPRM_C_F_STRIKE_RM => props.deleted = toggle(op),
+                        SPRM_C_F_R_MARK => props.inserted = toggle(op),
+                        SPRM_C_KUL => props.underline = op.first().is_some_and(|&b| b != 0),
+                        SPRM_C_ISS => {
+                            props.superscript = op.first() == Some(&1);
+                            props.subscript = op.first() == Some(&2);
+                        }
+                        _ => {}
+                    });
+                }
+            }
+            runs.push((fc(r), fc(r + 1), props));
+        }
+    }
+    runs.sort_by_key(|(start, _, _)| *start);
+    ChpxIndex::from_runs(runs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A stream holding one Word 6.0 character page (page 1) for `runs` -- (start, end, grpprl)
+    /// -- and its index at offset 0.
+    fn chpx_stream(runs: &[(u32, u32, &[u8])]) -> (Vec<u8>, FcLcb) {
+        let mut stream = vec![0u8; 1024];
+        let page = &mut stream[512..1024];
+        let crun = runs.len();
+        for (i, &(start, end, _)) in runs.iter().enumerate() {
+            page[i * 4..i * 4 + 4].copy_from_slice(&start.to_le_bytes());
+            page[(i + 1) * 4..(i + 1) * 4 + 4].copy_from_slice(&end.to_le_bytes());
+        }
+        let mut at = 510;
+        for (i, &(_, _, grpprl)) in runs.iter().enumerate() {
+            if grpprl.is_empty() {
+                continue;
+            }
+            at = (at - 1 - grpprl.len()) & !1;
+            page[at] = grpprl.len() as u8;
+            page[at + 1..at + 1 + grpprl.len()].copy_from_slice(grpprl);
+            page[4 * (crun + 1) + i] = (at / 2) as u8;
+        }
+        page[511] = crun as u8;
+        let mut index = Vec::new();
+        index.extend_from_slice(&runs[0].0.to_le_bytes());
+        index.extend_from_slice(&runs[crun - 1].1.to_le_bytes());
+        index.extend_from_slice(&1u16.to_le_bytes());
+        stream[..index.len()].copy_from_slice(&index);
+        let plc = FcLcb {
+            fc: 0,
+            lcb: index.len() as u32,
+        };
+        (stream, plc)
+    }
+
+    #[test]
+    fn character_sprms_become_run_properties() {
+        // Plain (a font only), bold and coloured, a superscript, "opposite of the style" bold
+        // with an underline, and a run with no properties.
+        let (stream, plc) = chpx_stream(&[
+            (100, 110, &[93, 0, 0]),
+            (110, 120, &[85, 1, 98, 6]),
+            (120, 122, &[104, 1]),
+            (122, 130, &[85, 0x81, 94, 1]),
+            (130, 131, &[]),
+        ]);
+        let index = read_chpx(&stream, plc);
+        assert_eq!(index.at(105), CharProps::default());
+        assert!(index.at(115).bold);
+        assert!(index.at(121).superscript);
+        let toggled = index.at(125);
+        assert!(toggled.bold && toggled.underline);
+        assert_eq!(index.at(130), CharProps::default());
+    }
+
+    #[test]
+    fn an_unknown_sprm_stops_the_walk_and_keeps_what_was_read() {
+        // Bold, then a code no Word 6.0 sprm has, then italic, which is not reached.
+        let (stream, plc) = chpx_stream(&[(100, 110, &[85, 1, 255, 86, 1])]);
+        let props = read_chpx(&stream, plc).at(100);
+        assert!(props.bold && !props.italic);
+    }
 }

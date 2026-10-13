@@ -42,8 +42,8 @@ pub(super) struct CharProps {
 /// A toggle operand ([MS-DOC] 2.9.311 `ToggleOperand`): 0 off, 1 on, and 0x80 / 0x81 "as the
 /// style" / "opposite of the style". Styles' character properties are not resolved here, so
 /// the style is taken as off: 0x80 reads off and 0x81 on.
-fn toggle(op: &[u8]) -> bool {
-    matches!(op[0], 1 | 0x81)
+pub(super) fn toggle(op: &[u8]) -> bool {
+    matches!(op.first(), Some(1 | 0x81))
 }
 
 fn apply_chpx(props: &mut CharProps, grpprl: &[u8]) {
@@ -78,6 +78,11 @@ pub(super) struct ChpxIndex {
 }
 
 impl ChpxIndex {
+    /// An index of `runs`, sorted by their start.
+    pub(super) fn from_runs(runs: Vec<(u32, u32, CharProps)>) -> Self {
+        Self { runs }
+    }
+
     /// The properties of the character at stream offset `fc`; plain text where none are set.
     pub fn at(&self, fc: u32) -> CharProps {
         let i = self.runs.partition_point(|(start, _, _)| *start <= fc);

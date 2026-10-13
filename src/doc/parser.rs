@@ -68,8 +68,9 @@ impl DocParser {
     }
 
     /// A Word 6.0 or Word 95 document: its text -- paragraphs, breaks, field results -- in
-    /// the document's code page, with the paragraph properties that make structure: tables
-    /// and heading styles. Its character formatting, notes, headers and pictures are not read.
+    /// the document's code page, with the paragraph properties that make structure (tables,
+    /// heading styles) and the character formatting Markdown carries. Its notes, headers and
+    /// pictures are not read.
     fn parse_word6(
         mut container: cfb::CompoundFile<Cursor<&[u8]>>,
         word_document: Vec<u8>,
@@ -93,7 +94,8 @@ impl DocParser {
         let mut section = Section::new(0);
         let papx = word6::read_papx(&word_document, fib.plcf_bte_papx);
         let styles = word6::read_styles(&word_document, fib.stshf, codepage);
-        let (chpx, lists) = (ChpxIndex::default(), ListTable::default());
+        let chpx = word6::read_chpx(&word_document, fib.plcf_bte_chpx);
+        let lists = ListTable::default();
         let mut assembler = Assembler::new(&papx, &chpx, &styles, &[], &lists, &[], &[]);
         for block in assembler.run(&chars) {
             section.add_block(block);

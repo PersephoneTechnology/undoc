@@ -13,8 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Their text — paragraphs, line and page breaks, a field's result without its instruction — is
   now read, fast-saved files included, in the code page the document's fonts name
   (Windows-1252 when none does), with the structure their paragraph properties give it: a
-  paragraph in a heading style is a heading, and a table is a table. Their character
-  formatting, notes, headers and pictures are not read yet.
+  paragraph in a heading style is a heading, a table is a table, and bold, italic,
+  underline, strikethrough, superscript, subscript and hidden text are kept as in a Word 97
+  file. Their notes, headers and pictures are not read yet.
 
 ### Fixed
 

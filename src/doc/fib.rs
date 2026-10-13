@@ -20,6 +20,7 @@ const F_COMPLEX: u16 = 0x0004;
 /// fixed place.
 const W6_FC_MIN: usize = 0x18;
 const W6_STSHF: usize = 0x60;
+const W6_PLCF_BTE_CHPX: usize = 0xB8;
 const W6_PLCF_BTE_PAPX: usize = 0xC0;
 const W6_CCP_TEXT: usize = 0x34;
 const W6_STTBF_FFN: usize = 0xD0;
@@ -66,9 +67,10 @@ pub(super) struct Word6Fib {
     pub clx: Option<FcLcb>,
     /// The font table, whose character sets name the text's code page.
     pub sttbf_ffn: FcLcb,
-    /// The style sheet and the paragraph property page index.
+    /// The style sheet and the paragraph and character property page indexes.
     pub stshf: FcLcb,
     pub plcf_bte_papx: FcLcb,
+    pub plcf_bte_chpx: FcLcb,
 }
 
 /// A Word binary document's FIB: Word 97 and later, or Word 6.0/95.
@@ -215,5 +217,6 @@ fn parse_word6(data: &[u8], flags: u16) -> Result<Word6Fib> {
         sttbf_ffn: pair(W6_STTBF_FFN)?,
         stshf: pair(W6_STSHF)?,
         plcf_bte_papx: pair(W6_PLCF_BTE_PAPX)?,
+        plcf_bte_chpx: pair(W6_PLCF_BTE_CHPX)?,
     })
 }
