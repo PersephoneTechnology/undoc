@@ -3709,8 +3709,10 @@ mod tests {
         let doc = parser.parse().expect("document parses");
         let md = crate::render::to_markdown(&doc, &crate::render::RenderOptions::new())
             .expect("renders to markdown");
+        // The `<` of the decoded `<tag>` is escaped in Markdown: written bare, a reader takes
+        // `<tag>` for an HTML tag and shows nothing.
         assert!(
-            md.contains("AT&T <tag> R & D 00"),
+            md.contains(r"AT&T \<tag> R & D 00"),
             "entity runs must concatenate without inserted separators; got {md:?}"
         );
     }

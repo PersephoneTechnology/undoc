@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Text that a Markdown reader would take for HTML stays text.** With `escape_special_chars`
+  on (the default), a `<` that can open a tag or an autolink (`Vec<String>`, `<b>`) and a `&`
+  that starts a character reference (`AT&amp;T`) are escaped, in paragraphs and table cells
+  alike; written bare, `Vec<String>` showed as `Vec` and `<b>` turned the rest of the line bold.
 - **A paragraph whose text starts like a list item, a heading or a quote stays a paragraph.**
   With `escape_special_chars` on (the default), a paragraph Word does not number or style that
   begins `* `, `- `, `1. `, `# ` or `> ` was written as is and rendered as a list item, a

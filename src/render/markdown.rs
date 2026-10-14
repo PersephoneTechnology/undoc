@@ -867,11 +867,13 @@ fn render_run(
 ///   and definitions are written by the renderer from the model, not carried in the text.
 /// - `|` - escape only inside table cells (where it is the column delimiter).
 ///   In regular paragraphs `|` is just a literal character.
-/// - `*` - escape only when it could trigger emphasis (CommonMark flanking
-///   rules). Intra-word `*` *can* still trigger emphasis, so it is escaped.
+/// - `*` - escape unless it stands between two spaces (`a * b`): any other `*` is
+///   flanking (CommonMark §6.2) and may open or close emphasis -- `*word*`, `a*b*c`.
 /// - `_` - same as `*`, **plus** an extra rule: CommonMark forbids intra-word
 ///   `_` from opening or closing emphasis, so identifiers like `snake_case`
 ///   are left intact.
+/// - `<` where it can open inline HTML or an autolink, and `&` where it starts a character
+///   reference -- through `unparser_shared::markdown::escape_html_syntax`.
 ///
 /// Characters NOT escaped (only special in specific contexts):
 /// - `()`, `{}` - only special after a link's `]`, which is always escaped
@@ -882,6 +884,9 @@ fn render_run(
 fn escape_markdown(s: &str, in_table_cell: bool) -> String {
     let mut result = String::with_capacity(s.len());
     let chars: Vec<char> = s.chars().collect();
+    // A cell's text is a whole inline context: its `*` and `_` are escaped only when some of
+    // them could pair into emphasis (`x*y*z`), not the stars of `0.039***`.
+    let cell_pairs = |d: char| markdown::emphasis_can_pair(s, d);
 
     for (i, &c) in chars.iter().enumerate() {
         match c {
@@ -899,14 +904,14 @@ fn escape_markdown(s: &str, in_table_cell: bool) -> String {
                 let prev = if i > 0 { Some(chars[i - 1]) } else { None };
                 let next = chars.get(i + 1).copied();
 
-                // CommonMark: emphasis requires a matching pair of flanking
-                // delimiters. If neither side can flank, no escape is needed.
-                let after_opener = prev.is_none_or(|p| {
-                    matches!(p, '(' | '[' | '{' | ':' | '-' | '/' | '\\') || p.is_whitespace()
-                });
-                let before_closer = next.is_none_or(|n| {
-                    matches!(n, ')' | ']' | '}' | ':' | '-' | '/' | '\\') || n.is_whitespace()
-                });
+                // CommonMark §6.2: a delimiter opens or closes emphasis when it is left- or
+                // right-flanking. With whitespace on both sides it is neither, and can pair
+                // with nothing. Anything else -- after a space and before a word (`_foo`),
+                // between words (`a*b`), next to punctuation -- may pair with a delimiter
+                // elsewhere on the line, so it is escaped. The ends of `s` are not
+                // whitespace: the text written next to it is not known here.
+                let spaced =
+                    prev.is_some_and(char::is_whitespace) && next.is_some_and(char::is_whitespace);
 
                 // Underscore-only rule: CommonMark disallows intra-word `_`
                 // from opening/closing emphasis, so identifiers like
@@ -915,7 +920,12 @@ fn escape_markdown(s: &str, in_table_cell: bool) -> String {
                     && prev.is_some_and(|p| p.is_alphanumeric())
                     && next.is_some_and(|n| n.is_alphanumeric());
 
-                if after_opener || before_closer || intra_word_underscore {
+                let literal = if in_table_cell {
+                    !cell_pairs(c)
+                } else {
+                    spaced || intra_word_underscore
+                };
+                if literal {
                     result.push(c);
                 } else {
                     result.push('\\');
@@ -925,7 +935,7 @@ fn escape_markdown(s: &str, in_table_cell: bool) -> String {
             _ => result.push(c),
         }
     }
-    result
+    markdown::escape_html_syntax(&result)
 }
 
 /// Render a table cell's content with formatting preserved.
@@ -1712,6 +1722,9 @@ mod tests {
         );
         // Inside a table cell, `|` must be escaped to avoid breaking columns.
         assert_eq!(escape_markdown("a | b", true), "a \\| b");
+        // A cell is a whole inline context: stars that cannot pair stay as they are.
+        assert_eq!(escape_markdown("0.039***", true), "0.039***");
+        assert_eq!(escape_markdown("x*y*z", true), r"x\*y\*z");
     }
 
     #[test]
@@ -1724,8 +1737,17 @@ mod tests {
         );
         assert_eq!(escape_markdown("in_house", false), "in_house");
         // Word-boundary `_` (next to whitespace) still needs escaping when it
-        // could open an emphasis run.
-        assert_eq!(escape_markdown("a _foo_ b", false), "a _foo_ b");
+        // could open an emphasis run: written bare, `a _foo_ b` is `a *foo* b`.
+        assert_eq!(escape_markdown("a _foo_ b", false), r"a \_foo\_ b");
+    }
+
+    /// A delimiter that flanks a word may open or close emphasis, whatever is before it;
+    /// only one with a space on each side pairs with nothing.
+    #[test]
+    fn test_escape_star_that_can_flank_is_escaped() {
+        assert_eq!(escape_markdown("say *hi* now", false), r"say \*hi\* now");
+        assert_eq!(escape_markdown("(*) note", false), r"(\*) note");
+        assert_eq!(escape_markdown("a * b", false), "a * b");
     }
 
     #[test]
