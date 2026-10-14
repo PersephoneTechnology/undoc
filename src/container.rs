@@ -12,6 +12,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::io::{Cursor, Read, Seek};
 use std::path::Path;
+use unparser_shared::inflate::{is_inflation_limit, InflateGuard};
 
 /// Classify a failure to open an entry inside the archive.
 ///
@@ -24,6 +25,18 @@ fn entry_error(path: &str, err: zip::result::ZipError) -> Error {
     match err {
         zip::result::ZipError::FileNotFound => Error::MissingComponent(path.to_string()),
         other => Error::from(other),
+    }
+}
+
+/// The bytes of the entry `path`, read from its decompressing reader `file` through
+/// [`InflateGuard`]: an entry that expands past what a document's data does (a
+/// decompression bomb) is a damaged archive, not an allocation that ends the process.
+pub(crate) fn read_entry(path: &str, file: impl Read, compressed_size: u64) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    match InflateGuard::new(file, compressed_size).read_to_end(&mut bytes) {
+        Ok(_) => Ok(bytes),
+        Err(e) if is_inflation_limit(&e) => Err(Error::ZipArchive(format!("{path}: {e}"))),
+        Err(e) => Err(e.into()),
     }
 }
 
@@ -298,11 +311,9 @@ impl OoxmlContainer {
     /// - UTF-16 BE (with BOM: FE FF)
     pub fn read_xml(&self, path: &str) -> Result<String> {
         let mut archive = self.archive.borrow_mut();
-        let mut file = archive.by_name(path).map_err(|e| entry_error(path, e))?;
-
-        // Read raw bytes first
-        let mut bytes = Vec::new();
-        file.read_to_end(&mut bytes)?;
+        let file = archive.by_name(path).map_err(|e| entry_error(path, e))?;
+        let compressed = file.compressed_size();
+        let bytes = read_entry(path, file, compressed)?;
 
         // Detect encoding from BOM
         let content = decode_xml_bytes(&bytes)?;
@@ -326,10 +337,9 @@ impl OoxmlContainer {
     /// Read a binary file from the archive.
     pub fn read_binary(&self, path: &str) -> Result<Vec<u8>> {
         let mut archive = self.archive.borrow_mut();
-        let mut file = archive.by_name(path).map_err(|e| entry_error(path, e))?;
-        let mut data = Vec::new();
-        file.read_to_end(&mut data)?;
-        Ok(data)
+        let file = archive.by_name(path).map_err(|e| entry_error(path, e))?;
+        let compressed = file.compressed_size();
+        read_entry(path, file, compressed)
     }
 
     /// Check if a file exists in the archive.
@@ -773,6 +783,37 @@ mod tests {
         let rels = container.read_package_relationships().unwrap();
         assert_eq!(rels.by_id.len(), 1);
         assert_eq!(rels.by_id["rId1"].target, "word/document.xml");
+    }
+
+    /// A part of 20 MiB of zeros deflates to about 20 KiB: past a hundredfold, it is read as a
+    /// damaged archive (a decompression bomb) instead of being allocated. A part of ordinary
+    /// text is read whole.
+    #[test]
+    fn a_part_that_expands_past_a_hundredfold_is_a_damaged_archive() {
+        use std::io::{Cursor, Write};
+        let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let deflated = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        zip.start_file("word/document.xml", deflated).unwrap();
+        zip.write_all(&vec![b' '; 20 << 20]).unwrap();
+        zip.start_file("word/styles.xml", deflated).unwrap();
+        zip.write_all(b"<w:styles/>").unwrap();
+        let container = OoxmlContainer::from_bytes(zip.finish().unwrap().into_inner()).unwrap();
+
+        match container.read_xml("word/document.xml") {
+            Err(Error::ZipArchive(message)) => {
+                assert!(message.contains("decompression bomb"), "{message}")
+            }
+            other => panic!("expected a damaged archive, got {other:?}"),
+        }
+        assert!(matches!(
+            container.read_binary("word/document.xml"),
+            Err(Error::ZipArchive(_))
+        ));
+        assert_eq!(
+            container.read_xml("word/styles.xml").unwrap(),
+            "<w:styles/>"
+        );
     }
 
     fn create_container_with_files(files: &[(&str, &str)]) -> OoxmlContainer {

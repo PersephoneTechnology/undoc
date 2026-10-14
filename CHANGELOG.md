@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A decompression bomb is an error, not an allocation.** A part of an OOXML package was read
+  to its end however far it expanded, so a few kilobytes that inflate to gigabytes exhausted
+  memory and ended the process. A part that expands more than a hundredfold past its first
+  100 KiB (or past 4 GiB) is now a damaged archive (`ErrorKind::ZipArchive`), as Apache POI
+  reads it.
+
 ## [0.25.0] - 2026-10-14
 
 ### Added

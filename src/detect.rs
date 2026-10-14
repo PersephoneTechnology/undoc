@@ -262,9 +262,9 @@ pub fn detect_format_from_reader<R: Read + Seek>(reader: R) -> Result<FormatType
 
     // Try to read [Content_Types].xml
     let content_types = match archive.by_name("[Content_Types].xml") {
-        Ok(mut file) => {
-            let mut bytes = Vec::new();
-            file.read_to_end(&mut bytes)?;
+        Ok(file) => {
+            let compressed = file.compressed_size();
+            let bytes = crate::container::read_entry("[Content_Types].xml", file, compressed)?;
             decode_xml_bytes(&bytes)?
         }
         // Only an absent part is a missing component. A container that is damaged or
