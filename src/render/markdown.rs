@@ -576,6 +576,13 @@ fn render_paragraph(
         let indent = output.len() - body_start - rest.len();
         output.replace_range(body_start..body_start + indent, "");
     }
+    // The paragraph's own markers -- a heading's `#`, a list item's -- are written above; text
+    // that merely starts like one (`1. `, `* `, `# ` in a paragraph Word does not number or
+    // style) is the document's text and stays text. A heading's content opens no block.
+    if options.escape_special_chars && effective_heading.is_none() {
+        let body = markdown::escape_block_starts(&output[body_start..]);
+        output.replace_range(body_start.., &body);
+    }
 
     // Render inline images
     for image in para.images.iter().filter(|_| options.include_images) {
@@ -1328,6 +1335,49 @@ mod tests {
         let options = RenderOptions::default();
         let md = render_paragraph(&para, &options, None, &empty_resource_map());
         assert_eq!(md, "## Title");
+    }
+
+    /// A paragraph Word does not number or style whose text starts like a list item, a heading
+    /// or a quote stays a paragraph: the marker is escaped. A list item's own marker and a
+    /// heading's are written as markers; text after them is escaped the same way.
+    #[test]
+    fn text_that_starts_like_a_block_marker_stays_text() {
+        let options = RenderOptions::default();
+        let render =
+            |para: &Paragraph| render_paragraph(para, &options, None, &empty_resource_map());
+        for (text, md) in [
+            ("* 주: 별표로 시작하는 문장", "\\* 주: 별표로 시작하는 문장"),
+            ("1. 번호로 시작하는 문장", "1\\. 번호로 시작하는 문장"),
+            ("# 해시로 시작하는 문장", "\\# 해시로 시작하는 문장"),
+            ("> 인용처럼 보이는 문장", "\\> 인용처럼 보이는 문장"),
+            ("- 대시로 시작하는 문장", "\\- 대시로 시작하는 문장"),
+        ] {
+            assert_eq!(render(&Paragraph::with_text(text)), md, "{text}");
+        }
+
+        let mut item = Paragraph::with_text("1. inside an item");
+        item.list_info = Some(crate::model::ListInfo {
+            list_type: crate::model::ListType::Bullet,
+            level: 0,
+            number: None,
+            marker_image: None,
+        });
+        assert_eq!(render(&item), "- 1\\. inside an item");
+
+        let heading = Paragraph::heading(HeadingLevel::H2, "1. Introduction");
+        assert_eq!(render(&heading), "## 1. Introduction");
+
+        let raw = RenderOptions {
+            escape_special_chars: false,
+            ..RenderOptions::default()
+        };
+        let md = render_paragraph(
+            &Paragraph::with_text("# raw"),
+            &raw,
+            None,
+            &empty_resource_map(),
+        );
+        assert_eq!(md, "# raw");
     }
 
     fn render_runs(runs: Vec<TextRun>) -> String {

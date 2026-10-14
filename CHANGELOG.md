@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A paragraph whose text starts like a list item, a heading or a quote stays a paragraph.**
+  With `escape_special_chars` on (the default), a paragraph Word does not number or style that
+  begins `* `, `- `, `1. `, `# ` or `> ` was written as is and rendered as a list item, a
+  heading or a block quote. The marker is now escaped (`\*`, `1\.`, `\#`, …) at the start of
+  each of the paragraph's lines, as it is for a list item's text after its own marker; a
+  heading's text is left as it is.
 - **A `.pptx` table cell keeps its underline and strikethrough.** A cell's runs were read with
   bold and italic only; one reader of a run's properties now serves table cells, text boxes and
   notes alike.
