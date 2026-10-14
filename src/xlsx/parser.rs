@@ -345,34 +345,38 @@ impl XlsxParser {
         ranges
     }
 
-    /// Parse cell reference like "A1" into (column, row) where column is 0-indexed.
+    /// Parse a cell reference like `"A1"` into `(0-based column, 1-based row)`.
+    ///
+    /// ECMA-376 writes a reference as column letters then row digits, within the sheet:
+    /// columns `A`..`XFD` (16 384) and rows 1..1 048 576. Anything else is no position --
+    /// the cell takes the next column -- rather than a column number computed from it: the
+    /// letters of a long attribute overflowed the column, and a column far past the sheet
+    /// would make the row fill every column up to it.
     fn parse_cell_ref(cell_ref: &str) -> Option<(u32, u32)> {
-        let cell_ref = cell_ref.to_uppercase();
-        let mut col_str = String::new();
-        let mut row_str = String::new();
+        const MAX_COLUMNS: u32 = 16_384;
+        const MAX_ROWS: u32 = 1_048_576;
 
-        for c in cell_ref.chars() {
-            if c.is_ascii_alphabetic() {
-                col_str.push(c);
-            } else if c.is_ascii_digit() {
-                row_str.push(c);
-            }
+        let digits = cell_ref.find(|c: char| c.is_ascii_digit())?;
+        let (letters, row) = cell_ref.split_at(digits);
+        if letters.is_empty()
+            || letters.len() > 3
+            || !letters.bytes().all(|b| b.is_ascii_alphabetic())
+        {
+            return None;
         }
-
-        if col_str.is_empty() || row_str.is_empty() {
+        if !row.bytes().all(|b| b.is_ascii_digit()) {
             return None;
         }
 
-        // Convert column letters to number (A=0, B=1, ..., Z=25, AA=26, ...)
-        let mut col: u32 = 0;
-        for c in col_str.chars() {
-            col = col * 26 + (c as u32 - 'A' as u32 + 1);
+        // Column letters in bijective base 26: A = 1, ..., Z = 26, AA = 27, ...
+        let col = letters.bytes().fold(0u32, |col, b| {
+            col * 26 + u32::from(b.to_ascii_uppercase() - b'A' + 1)
+        });
+        let row: u32 = row.parse().ok()?;
+        if col > MAX_COLUMNS || !(1..=MAX_ROWS).contains(&row) {
+            return None;
         }
-        col -= 1; // Make it 0-indexed
-
-        let row: u32 = row_str.parse().ok()?;
-
-        Some((col, row))
+        Some((col - 1, row))
     }
 
     /// Parse a worksheet XML into a table.
@@ -1856,6 +1860,26 @@ mod tests {
         assert_eq!(table.rows[2].cells[0].plain_text(), "third");
     }
 
+    /// The fuzzer's worksheet, cut down: a cell whose `r` is a long run of letters. It
+    /// panicked with overflow checks; it is a cell in the next column.
+    #[test]
+    fn a_cell_whose_reference_is_not_a_cell_takes_the_next_column() {
+        let parser = test_parser();
+        let sheet_xml = r#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+            <sheetData><row r="1">
+                <c r="A1" t="inlineStr"><is><t>a</t></is></c>
+                <c r="application/vnd.openxmlformats-officedocument.wordprocessingml.dB2"><v>1</v></c>
+                <c r="ZZZZZZ1"><v>2</v></c>
+            </row></sheetData></worksheet>"#;
+
+        let table = parser
+            .parse_sheet(sheet_xml, &HashMap::new(), &HashMap::new(), &HashMap::new())
+            .unwrap();
+
+        let texts: Vec<String> = table.rows[0].cells.iter().map(|c| c.plain_text()).collect();
+        assert_eq!(texts, ["a", "1", "2"]);
+    }
+
     #[test]
     fn test_parse_sheet_sparse_high_column_reconstruction_is_row_local() {
         let parser = test_parser();
@@ -1892,6 +1916,34 @@ mod tests {
         assert_eq!(XlsxParser::parse_cell_ref("AB1"), Some((27, 1)));
         assert_eq!(XlsxParser::parse_cell_ref("AZ1"), Some((51, 1)));
         assert_eq!(XlsxParser::parse_cell_ref("BA1"), Some((52, 1)));
+        assert_eq!(XlsxParser::parse_cell_ref("ab3"), Some((27, 3)));
+        assert_eq!(
+            XlsxParser::parse_cell_ref("XFD1048576"),
+            Some((16_383, 1_048_576))
+        );
+    }
+
+    /// A reference outside the A1 form or past the sheet is no position. The first is a
+    /// fuzzer's: its letters overflowed the column (a panic with overflow checks, a wrapped
+    /// column of billions without them).
+    #[test]
+    fn a_reference_that_is_not_a_cell_is_no_position() {
+        for reference in [
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.dB2",
+            "XFE1",
+            "ZZZZ1",
+            "A0",
+            "A1048577",
+            "A99999999999",
+            "1A",
+            "A1B",
+            "A",
+            "1",
+            "",
+            "$A$1",
+        ] {
+            assert_eq!(XlsxParser::parse_cell_ref(reference), None, "{reference}");
+        }
     }
 
     #[test]

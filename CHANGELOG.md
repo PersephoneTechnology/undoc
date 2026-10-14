@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A worksheet cell whose `r` is not a cell reference no longer overflows or fills a huge
+  row.** The column of a reference was computed from all its letters, so a long attribute
+  value overflowed it -- a panic with overflow checks, such as a Rust consumer's debug build --
+  and a column far past the sheet made the row fill every column up to it. A reference is now
+  read as ECMA-376 writes it (column letters `A`..`XFD`, then a row 1..1 048 576); anything
+  else is a cell in the next column, as a cell without a reference already was. Found by the
+  fuzzer.
+
 ## [0.26.0] - 2026-10-15
 
 ### Changed
