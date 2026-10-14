@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "undoc"
-version = "0.24.0"
+version = "0.25.0"
 edition = "2021"
 authors = ["iyulab"]
 description = "High-performance Microsoft Office document extraction to Markdown"
@@ -81,7 +81,7 @@ thiserror = "2.0"
 # Shared plumbing for the un* family: error-kind numbering and C-ABI helpers at
 # the crate root (dependency-free), plus the shape-refinement pass behind the
 # `refine` feature above.
-unparser-shared = { version = "0.9", default-features = false }
+unparser-shared = { version = "0.10", default-features = false }
 
 # Text processing
 unicode-normalization = "0.1"
