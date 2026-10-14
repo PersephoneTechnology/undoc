@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Requires `unparser-shared` 0.11.
+
 ### Fixed
 
 - **A decompression bomb is an error, not an allocation.** A part of an OOXML package was read
