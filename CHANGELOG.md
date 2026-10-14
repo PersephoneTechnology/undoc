@@ -23,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no merge now leaves its column to the next cell with content. Rendered output is
   unchanged; in the table model, a row no longer ends in empty cells past its last value.
 
+### Changed
+
+- Requires `unparser-shared` 0.12: a cell span past HTML's bounds (1000 columns, 65 534
+  rows) is read as the bound when a table is laid out.
+
 ## [0.26.0] - 2026-10-15
 
 ### Changed

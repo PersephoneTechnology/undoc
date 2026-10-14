@@ -387,6 +387,25 @@ mod tests {
     }
 
     #[test]
+    fn test_a_declared_span_past_the_bound_does_not_size_the_table() {
+        // A `w:gridSpan` is a decimal attribute; one cell declaring billions of columns must
+        // not make every laid-out row that wide (`unparser_shared::grid::MAX_COL_SPAN`).
+        let mut table = Table::new();
+        table.add_row(Row {
+            cells: vec![Cell {
+                col_span: u32::MAX,
+                ..Cell::with_text("wide")
+            }],
+            ..Row::new()
+        });
+        assert_eq!(
+            table.column_count(),
+            unparser_shared::grid::MAX_COL_SPAN as usize
+        );
+        assert!(table.to_csv().len() < 2_000);
+    }
+
+    #[test]
     fn test_column_count_includes_columns_pushed_right_by_a_vertical_span() {
         // Row 2 sums to two columns but starts in column 1.
         let mut table = Table::new();
