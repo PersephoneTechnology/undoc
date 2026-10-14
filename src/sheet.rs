@@ -152,8 +152,8 @@ impl SheetTableBuilder {
     /// — and a covered cell is dropped; its value is one Excel no longer shows.
     ///
     /// `at` is `(0-based column, 1-based sheet row)`; a cell without a position takes the next
-    /// column. Gap reconstruction stays inside the current row, up to the highest column it
-    /// references. This is not whole-sheet densification.
+    /// column. Gap reconstruction stays inside the current row, up to the highest column
+    /// holding content or a merge. This is not whole-sheet densification.
     pub fn place(&mut self, mut cell: Cell, at: Option<(u32, u32)>) {
         let is_header = self.in_first_row();
         let Some(row) = self.row.as_mut() else {
@@ -165,6 +165,15 @@ impl SheetTableBuilder {
             return;
         };
         let sheet_row = *self.sheet_row.get_or_insert(ref_row);
+
+        // A cell with no content that owns no merge adds nothing a reader sees, but filling
+        // the row up to it does: one styled empty cell at `XFD` would cost 16 384 cells, in
+        // every row that has one. Its column is left to the next cell with content, which
+        // fills the gap exactly as before; if none comes, the trailing-column trim would
+        // have dropped it anyway.
+        if cell.is_empty() && !matches!(self.merges.at(col, sheet_row), Coverage::Origin(..)) {
+            return;
+        }
 
         for gap in self.next_col..col {
             match self.merges.at(gap, sheet_row) {
@@ -402,4 +411,51 @@ fn days_to_ymd(days: i64) -> Option<(i32, u32, u32)> {
 /// Check if a year is a leap year.
 fn is_leap_year(year: i32) -> bool {
     (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_empty_cell_far_right_does_not_fill_the_row() {
+        let mut builder = SheetTableBuilder::new(Vec::new());
+        builder.start_row(Some(1));
+        builder.place(Cell::with_text("a"), Some((0, 1)));
+        builder.place(Cell::new(), Some((16_383, 1)));
+        // Inspected before `finish`, whose trim would hide an allocation that already happened.
+        assert_eq!(builder.row.as_ref().unwrap().cells.len(), 1);
+        let table = builder.finish();
+        assert_eq!(table.rows[0].cells.len(), 1);
+    }
+
+    #[test]
+    fn an_empty_cell_between_contents_keeps_its_column() {
+        let mut builder = SheetTableBuilder::new(Vec::new());
+        builder.start_row(Some(1));
+        builder.place(Cell::with_text("a"), Some((0, 1)));
+        builder.place(Cell::new(), Some((2, 1)));
+        builder.place(Cell::with_text("e"), Some((4, 1)));
+        let table = builder.finish();
+        let texts: Vec<String> = table.rows[0].cells.iter().map(|c| c.plain_text()).collect();
+        assert_eq!(texts, ["a", "", "", "", "e"]);
+    }
+
+    #[test]
+    fn an_empty_merge_owner_still_takes_its_place() {
+        let merge = MergeRange {
+            left: 2,
+            right: 3,
+            top: 1,
+            bottom: 1,
+        };
+        let mut builder = SheetTableBuilder::new(vec![merge]);
+        builder.start_row(Some(1));
+        builder.place(Cell::with_text("a"), Some((0, 1)));
+        builder.place(Cell::new(), Some((2, 1)));
+        builder.place(Cell::with_text("e"), Some((4, 1)));
+        let table = builder.finish();
+        let spans: Vec<u32> = table.rows[0].cells.iter().map(|c| c.col_span).collect();
+        assert_eq!(spans, [1, 1, 2, 1]);
+    }
 }

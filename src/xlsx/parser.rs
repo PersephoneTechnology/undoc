@@ -2408,7 +2408,9 @@ mod tests {
             </sheetData>
             <mergeCells count="1"><mergeCell ref="A1:A2"/></mergeCells>"#,
         );
-        assert_eq!(row_texts(&table), vec![vec!["G", "b", ""], vec!["y", "z"]]);
+        // Row 1's styled empty `C1` is not placed (no content past it); the grid still spans
+        // column C because row 2 reaches it.
+        assert_eq!(row_texts(&table), vec![vec!["G", "b"], vec!["y", "z"]]);
         assert_eq!(table.column_count(), 3);
     }
 

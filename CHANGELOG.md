@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   read as ECMA-376 writes it (column letters `A`..`XFD`, then a row 1..1 048 576); anything
   else is a cell in the next column, as a cell without a reference already was. Found by the
   fuzzer.
+- **An empty worksheet cell far to the right no longer widens its row.** A row was filled
+  with empty cells up to the column of every cell it wrote, including cells with no value
+  (a styled cell at `XFD` cost 16 384 cells, in every row that had one), and the trailing
+  empty columns were only trimmed after that allocation. A cell with no content that owns
+  no merge now leaves its column to the next cell with content. Rendered output is
+  unchanged; in the table model, a row no longer ends in empty cells past its last value.
 
 ## [0.26.0] - 2026-10-15
 
