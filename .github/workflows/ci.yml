@@ -185,6 +185,17 @@ jobs:
       - name: Build WASM (bundler target)
         run: wasm-pack build undoc-wasm --target bundler
 
+      - name: Check each format on its own
+        # undoc-wasm documents building with a subset of the formats. Every other
+        # build here turns all of them on, so nothing else would notice a parser
+        # that no longer builds alone, or code only some formats use going dead.
+        env:
+          RUSTFLAGS: -D warnings
+        run: |
+          for format in docx xlsx pptx doc xls ppt; do
+            cargo check --target wasm32-unknown-unknown -p undoc-wasm --no-default-features --features "$format"
+          done
+
       - name: Run wasm-pack tests (Node.js)
         run: wasm-pack test --node undoc-wasm
 

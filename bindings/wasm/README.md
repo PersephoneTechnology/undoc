@@ -2,7 +2,8 @@
 
 Browser/Node.js WebAssembly package for [undoc](https://github.com/iyulab/undoc).
 
-Extracts DOCX, XLSX, and PPTX files to Markdown, plain text, or JSON — no server required.
+Extracts DOCX, XLSX and PPTX files, and their 97-2003 binary predecessors (DOC, XLS, PPT), to
+Markdown, plain text, or JSON — no server required.
 
 ## Install
 
@@ -32,7 +33,7 @@ console.log(doc.toJson());       // JSON string
 
 ### `supportedFormats(): string`
 
-JSON array of the formats this package can parse:
+JSON array of the formats this build can parse (the published package parses all six):
 
 ```js
 import { supportedFormats } from '@iyulab/undoc';
@@ -51,7 +52,8 @@ the moment this package learns a new format, and nothing tells you it has.
 
 ### `parse(data: Uint8Array): OfficeDocument`
 
-Parse a DOCX, XLSX, or PPTX byte array. Throws if the format is unrecognized.
+Parse a document's bytes. Throws if the format is unrecognized, or if it is a format this build
+leaves out (see below) — the error's `kind` then says `UnsupportedFormat` (4).
 
 ### `OfficeDocument`
 
@@ -63,6 +65,26 @@ Parse a DOCX, XLSX, or PPTX byte array. Throws if the format is unrecognized.
 | `toText()` | `string` | Plain text extraction |
 | `toJson()` | `string` | Structured JSON |
 | `metadata()` | `string` | JSON of title/author/subject etc. |
+
+## Building with fewer formats
+
+Each format's parser is a cargo feature of `undoc-wasm` (`docx`, `xlsx`, `pptx`, `doc`, `xls`,
+`ppt`; all on by default). An application that reads only some of them can build the package
+itself without the rest — most of the bundle is the parsers, not the shared code:
+
+```bash
+git clone https://github.com/iyulab/undoc && cd undoc/undoc-wasm
+wasm-pack build --release --target bundler -- --no-default-features --features docx,xlsx,pptx
+```
+
+| Features | `undoc_wasm.wasm` (release, before `wasm-opt`) |
+|---|---|
+| all six (the published package) | 1,929,505 bytes |
+| `docx,xlsx,pptx` | 1,682,136 bytes (−12.8%) |
+| `docx` | 1,433,407 bytes (−25.7%) |
+
+`supportedFormats()` reports only the formats the build contains, so code that asks it rather than
+hardcoding extensions keeps working unchanged.
 
 ## Playground
 

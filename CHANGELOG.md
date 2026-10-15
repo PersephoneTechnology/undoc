@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`undoc-wasm` builds with a subset of the formats.** Its cargo features `docx`, `xlsx`,
+  `pptx`, `doc`, `xls` and `ppt` (all on by default) select the parsers in the bundle;
+  `--no-default-features --features docx,xlsx,pptx` makes the release `.wasm` 12.8% smaller,
+  `docx` alone 25.7%. `supportedFormats()` lists only the formats the build contains, so a
+  consumer that asks it keeps working with a reduced build. The published package is unchanged.
+- **`FormatType::is_enabled`** says whether this build parses a format. Each format's parser is
+  behind the cargo feature of the same name, and a format left out is still recognised and
+  rejected as `UnsupportedFormat`; `FormatType::ALL` lists every format the library knows.
+
 ### Fixed
 
 - **A worksheet cell whose `r` is not a cell reference no longer overflows or fills a huge

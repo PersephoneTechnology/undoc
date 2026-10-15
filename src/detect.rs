@@ -61,13 +61,16 @@ pub enum FormatType {
 }
 
 impl FormatType {
-    /// Every format this library can parse.
+    /// Every format this library knows.
     ///
     /// The enumeration lives here so that consumers do not have to keep their own copy.
     /// A consumer deciding whether to hand a file to this library otherwise hardcodes the
     /// extension list on its side, and that copy goes quietly stale the moment the library
     /// learns a new format -- with nothing to notice the drift. Adding a variant without
     /// adding it here is caught by `all_variants_are_listed` below.
+    ///
+    /// Each format's parser sits behind a cargo feature of the same name, so a build may
+    /// parse fewer than this; [`FormatType::is_enabled`] says which ones this build parses.
     pub const ALL: [FormatType; 6] = [
         FormatType::Docx,
         FormatType::Xlsx,
@@ -76,6 +79,24 @@ impl FormatType {
         FormatType::Xls,
         FormatType::Ppt,
     ];
+
+    /// Whether this build parses the format.
+    ///
+    /// Each format's parser is behind a cargo feature named after it (`docx`, `xlsx`, `pptx`,
+    /// `doc`, `xls`, `ppt`; all on by default). A build without one still recognises the
+    /// format, and [`parse_bytes`](crate::parse_bytes) rejects it with
+    /// [`Error::UnsupportedFormat`]. A caller filtering files by extension asks this rather
+    /// than assuming every entry of [`FormatType::ALL`] is parseable.
+    pub const fn is_enabled(self) -> bool {
+        match self {
+            FormatType::Docx => cfg!(feature = "docx"),
+            FormatType::Xlsx => cfg!(feature = "xlsx"),
+            FormatType::Pptx => cfg!(feature = "pptx"),
+            FormatType::Doc => cfg!(feature = "doc"),
+            FormatType::Xls => cfg!(feature = "xls"),
+            FormatType::Ppt => cfg!(feature = "ppt"),
+        }
+    }
 
     /// Returns the file extension for this format.
     pub fn extension(&self) -> &'static str {

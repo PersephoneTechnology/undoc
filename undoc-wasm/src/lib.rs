@@ -13,10 +13,14 @@ use wasm_bindgen::prelude::*;
 /// format -- silently, because nothing compares the two. Asking the package removes the
 /// second copy. The name is included so a consumer can label a file without inventing its
 /// own wording for a format this package already names.
+///
+/// Only the formats this build parses are listed: a build made with a subset of the format
+/// features omits the rest, which `parse` would reject as unsupported.
 #[wasm_bindgen(js_name = supportedFormats)]
 pub fn supported_formats() -> Result<String, JsValue> {
     let formats: Vec<_> = undoc::FormatType::ALL
         .iter()
+        .filter(|format| format.is_enabled())
         .map(|format| serde_json::json!({ "extension": format.extension(), "name": format.name() }))
         .collect();
     serde_json::to_string(&formats).map_err(json_error)
@@ -98,6 +102,14 @@ mod tests {
     /// The exact JSON is pinned on purpose. A silent key rename would leave every consumer's
     /// lookup returning nothing, with no error anywhere to notice it.
     #[test]
+    #[cfg(all(
+        feature = "docx",
+        feature = "xlsx",
+        feature = "pptx",
+        feature = "doc",
+        feature = "xls",
+        feature = "ppt"
+    ))]
     fn supported_formats_reports_every_format_the_library_parses() {
         let expected = concat!(
             r#"[{"extension":"docx","name":"Word Document"},"#,
@@ -114,16 +126,29 @@ mod tests {
     }
 
     /// The point of the call is that a consumer stops keeping its own copy of the list, so
-    /// the reported set has to track the parsed set rather than being a second hand-written one.
+    /// the reported set has to be exactly what this package was built with: a format feature
+    /// left out is not reported, and every one built in is. Comparing against this crate's own
+    /// features also checks that each of them reaches the library's parser.
     #[test]
-    fn supported_formats_stays_in_step_with_the_library() {
-        let json = supported_formats().unwrap();
-        for format in undoc::FormatType::ALL {
-            assert!(
-                json.contains(format.extension()),
-                "{} is parsed but not reported as supported",
-                format.extension()
-            );
-        }
+    fn supported_formats_stays_in_step_with_the_build() {
+        let json: serde_json::Value = serde_json::from_str(&supported_formats().unwrap()).unwrap();
+        let reported: Vec<&str> = json
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["extension"].as_str().unwrap())
+            .collect();
+        let built: Vec<&str> = [
+            ("docx", cfg!(feature = "docx")),
+            ("xlsx", cfg!(feature = "xlsx")),
+            ("pptx", cfg!(feature = "pptx")),
+            ("doc", cfg!(feature = "doc")),
+            ("xls", cfg!(feature = "xls")),
+            ("ppt", cfg!(feature = "ppt")),
+        ]
+        .into_iter()
+        .filter_map(|(extension, on)| on.then_some(extension))
+        .collect();
+        assert_eq!(reported, built);
     }
 }
