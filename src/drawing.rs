@@ -108,6 +108,7 @@ pub(crate) fn scan_pictures(xml: &str) -> PictureRefs {
 /// The relationship id of the picture a part's background is filled with: the blip of a
 /// PowerPoint `p:bg` (`a:blipFill`) or the `v:fill`/`v:imagedata` of a Word `w:background`.
 /// `None` when the background is a colour or gradient, or the part has none.
+#[cfg(any(feature = "docx", feature = "pptx"))]
 pub(crate) fn background_picture(xml: &str) -> Option<String> {
     let mut reader = crate::decode::reader_for(xml);
     reader.config_mut().trim_text(true);

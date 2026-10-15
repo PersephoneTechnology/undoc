@@ -205,7 +205,10 @@ where
 /// parse is the error itself, or under `lenient` a degenerate stream carrying it as
 /// `SectionFailed` at index 0. `Break` ends the stream at any event, as it does for the
 /// formats that stream section by section.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(
+    not(target_arch = "wasm32"),
+    any(feature = "docx", feature = "doc", feature = "xls", feature = "ppt")
+))]
 pub(crate) fn emit_parsed_document<F>(
     parsed: Result<crate::model::Document>,
     metadata: Option<Metadata>,

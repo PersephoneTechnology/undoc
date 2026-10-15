@@ -55,12 +55,14 @@
 //! - `async`: Async I/O support with Tokio
 //! - `ffi`: C-ABI bindings for foreign language integration
 
+#[cfg(any(feature = "docx", feature = "pptx"))]
 mod charts;
 #[cfg(any(feature = "doc", feature = "xls", feature = "ppt"))]
 mod codepage;
 pub mod container;
 mod decode;
 pub mod detect;
+#[cfg(any(feature = "docx", feature = "xlsx", feature = "pptx"))]
 mod drawing;
 pub mod error;
 #[cfg(feature = "raster")]

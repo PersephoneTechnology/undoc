@@ -155,6 +155,7 @@ impl TextStyle {
     /// link -- Word's `Hyperlink` character style, a producer writing the underline on the run,
     /// a viewer drawing one -- and the link already says so: the underline is not kept as the
     /// author's emphasis.
+    #[cfg(any(feature = "doc", feature = "docx", feature = "pptx"))]
     pub(crate) fn in_link(mut self) -> Self {
         self.underline = false;
         self

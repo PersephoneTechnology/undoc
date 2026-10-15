@@ -76,6 +76,7 @@ pub(crate) fn reader_for(xml: &str) -> Reader<&[u8]> {
 /// An attribute's value with character and entity references resolved — what a reader
 /// sees (`A &amp; B` reads as `A & B`). A value whose references cannot be resolved comes
 /// back as written rather than being dropped.
+#[cfg(any(feature = "docx", feature = "xlsx", feature = "pptx"))]
 pub(crate) fn attr_value(attr: &quick_xml::events::attributes::Attribute<'_>) -> String {
     attr.normalized_value(quick_xml::XmlVersion::Implicit1_0)
         .map(|v| v.into_owned())
