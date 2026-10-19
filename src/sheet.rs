@@ -94,6 +94,8 @@ impl SheetMerges {
 /// Builds a [`Table`] from a worksheet's rows, one row and one cell at a time.
 pub(crate) struct SheetTableBuilder {
     table: Table,
+    source_positions: Option<std::collections::HashSet<(u32, u32)>>,
+    source_conflict: bool,
     merges: SheetMerges,
     /// Sheet row number of each table row, parallel to `table.rows` — a merge's `row_span`
     /// counts sheet rows, and rows the worksheet omits are not table rows.
@@ -109,12 +111,20 @@ impl SheetTableBuilder {
     pub fn new(merges: Vec<MergeRange>) -> Self {
         Self {
             table: Table::new(),
+            source_positions: None,
+            source_conflict: false,
             merges: SheetMerges::new(merges),
             sheet_rows: Vec::new(),
             row: None,
             sheet_row: None,
             next_col: 0,
         }
+    }
+
+    /// Enable original addresses for the XLSX parser only.
+    pub fn with_sources(mut self) -> Self {
+        self.source_positions = Some(Default::default());
+        self
     }
 
     /// Whether the row being read is the table's first — its cells are header cells.
@@ -165,6 +175,44 @@ impl SheetTableBuilder {
             return;
         };
         let sheet_row = *self.sheet_row.get_or_insert(ref_row);
+        if let Some(positions) = &mut self.source_positions {
+            if ref_row == 0
+                || ref_row > 1_048_576
+                || col >= 16_384
+                || sheet_row != ref_row
+                || !positions.insert((col, ref_row))
+            {
+                self.source_conflict = true;
+            } else {
+                let (width, height) = match self.merges.at(col, sheet_row) {
+                    Coverage::Origin(w, h) => (w, h),
+                    _ => (1, 1),
+                };
+                if self
+                    .merges
+                    .active
+                    .iter()
+                    .filter(|r| (r.left..=r.right).contains(&col))
+                    .take(2)
+                    .count()
+                    > 1
+                {
+                    self.source_conflict = true;
+                }
+                if col.checked_add(width).is_some_and(|end| end <= 16_384)
+                    && ref_row
+                        .checked_add(height - 1)
+                        .is_some_and(|end| end <= 1_048_576)
+                {
+                    cell.spreadsheet_source = Some(crate::model::SpreadsheetCellSource {
+                        row_start: ref_row - 1,
+                        column_start: col,
+                        row_end: ref_row + height - 2,
+                        column_end: col + width - 1,
+                    });
+                }
+            }
+        }
 
         // A cell with no content that owns no merge adds nothing a reader sees, but filling
         // the row up to it does: one styled empty cell at `XFD` would cost 16 384 cells, in
@@ -179,10 +227,12 @@ impl SheetTableBuilder {
             match self.merges.at(gap, sheet_row) {
                 Coverage::Covered => {}
                 Coverage::Free => row.cells.push(Cell {
+                    spreadsheet_source: None,
                     is_header,
                     ..Cell::new()
                 }),
                 Coverage::Origin(col_span, row_span) => row.cells.push(Cell {
+                    spreadsheet_source: None,
                     col_span,
                     row_span,
                     is_header,
@@ -239,6 +289,11 @@ impl SheetTableBuilder {
         }
 
         clamp_row_spans(&mut table, &sheet_rows);
+        if self.source_conflict {
+            for cell in table.rows.iter_mut().flat_map(|row| &mut row.cells) {
+                cell.spreadsheet_source = None;
+            }
+        }
         table
     }
 }

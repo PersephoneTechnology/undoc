@@ -7,11 +7,14 @@
 mod document;
 mod paragraph;
 mod resource;
-mod table;
 mod source;
+mod table;
 
 pub use document::*;
 pub use paragraph::*;
 pub use resource::*;
-pub use table::*;
 pub use source::*;
+pub use table::*;
+
+mod spreadsheet_source;
+pub use spreadsheet_source::*;

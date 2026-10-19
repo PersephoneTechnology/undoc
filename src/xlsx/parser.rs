@@ -274,8 +274,13 @@ impl XlsxParser {
                 let hyperlink_map = Self::parse_hyperlinks(&xml, &sheet_rels);
                 let comment_map =
                     Self::find_and_parse_comments(&self.container, &sheet_rels, sheet_dir)?;
-                let table =
+                let mut table =
                     self.parse_sheet(&xml, &hyperlink_map, &comment_map, rich_value_images)?;
+                table.spreadsheet_source = Some(crate::model::SpreadsheetTableSource {
+                    part: Self::resolve_relative_path("", &sheet_path),
+                    worksheet_index: idx as u32,
+                    worksheet_name: sheet.name.clone(),
+                });
                 section.add_block(Block::Table(table));
 
                 // The sheet's background picture (`<picture r:id>`), drawn behind the cells.
@@ -397,7 +402,7 @@ impl XlsxParser {
         rich_value_images: &HashMap<u32, String>,
     ) -> Result<Table> {
         // First pass: parse merge cells
-        let mut sheet = SheetTableBuilder::new(Self::parse_merge_cells(xml));
+        let mut sheet = SheetTableBuilder::new(Self::parse_merge_cells(xml)).with_sources();
         let mut reader = crate::decode::reader_for(xml);
         // IMPORTANT: Don't trim text - preserve whitespace from xml:space="preserve" elements
         // Excel cell values may contain significant leading/trailing spaces
@@ -2171,6 +2176,22 @@ mod tests {
             r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
             <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">{body}</worksheet>"#
         )
+    }
+
+    #[test]
+    fn source_conflicts_never_produce_coordinates() {
+        for body in [
+            r#"<sheetData><row r="3"><c r="A4" t="inlineStr"><is><t>value</t></is></c></row></sheetData>"#,
+            r#"<sheetData><row r="3"><c r="A3"><v>1</v></c><c r="A3"><v>2</v></c></row></sheetData>"#,
+            r#"<sheetData><row r="3"><c r="A3"><v>1</v></c></row></sheetData><mergeCells><mergeCell ref="A3:B4"/><mergeCell ref="A3:C5"/></mergeCells>"#,
+        ] {
+            let table = sheet_table(body);
+            assert!(table
+                .rows
+                .iter()
+                .flat_map(|r| &r.cells)
+                .all(|c| c.spreadsheet_source.is_none()));
+        }
     }
 
     fn sheet_table(body: &str) -> Table {

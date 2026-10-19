@@ -1825,6 +1825,7 @@ mod tests {
         para.runs
             .push(TextRun::styled("Important note", TextStyle::bold()));
         let cell = Cell {
+            spreadsheet_source: None,
             content: vec![para],
             ..Cell::with_text("")
         };
@@ -1846,6 +1847,7 @@ mod tests {
         let mut para = Paragraph::new();
         para.runs.push(TextRun::styled("X", TextStyle::bold()));
         let cell = Cell {
+            spreadsheet_source: None,
             content: vec![para],
             ..Cell::with_text("")
         };
@@ -2140,6 +2142,7 @@ mod tests {
             .push(TextRun::styled("ClusterPlex v5.0", TextStyle::bold()));
 
         let cell = Cell {
+            spreadsheet_source: None,
             content: vec![bold_para],
             nested_tables: Vec::new(),
             col_span: 1,
@@ -2183,6 +2186,7 @@ mod tests {
             .push(TextRun::styled("emphasis", TextStyle::italic()));
 
         let cell = Cell {
+            spreadsheet_source: None,
             content: vec![italic_para],
             nested_tables: Vec::new(),
             col_span: 1,
@@ -2224,6 +2228,7 @@ mod tests {
         let para2 = Paragraph::with_text("2. Standby 서버 어댑터 Enable");
 
         let cell = Cell {
+            spreadsheet_source: None,
             content: vec![para1, para2],
             nested_tables: Vec::new(),
             col_span: 1,
@@ -2278,6 +2283,7 @@ mod tests {
         para2.runs.push(TextRun::plain("Linux"));
 
         let cell1 = Cell {
+            spreadsheet_source: None,
             content: vec![para1],
             nested_tables: Vec::new(),
             col_span: 1,
@@ -2290,6 +2296,7 @@ mod tests {
         };
 
         let cell2 = Cell {
+            spreadsheet_source: None,
             content: vec![para2],
             nested_tables: Vec::new(),
             col_span: 1,
@@ -2431,6 +2438,7 @@ mod tests {
         table.add_row(Row::header(vec![Cell::header("Notes")]));
         table.add_row(Row {
             cells: vec![Cell {
+                spreadsheet_source: None,
                 content: vec![Paragraph {
                     runs: vec![
                         TextRun {
@@ -2470,6 +2478,7 @@ mod tests {
         table.add_row(Row::header(vec![Cell::header("Header")]));
         table.add_row(Row {
             cells: vec![Cell {
+                spreadsheet_source: None,
                 content: vec![Paragraph::with_text("<unsafe> & value")],
                 nested_tables: Vec::new(),
                 col_span: 2,
@@ -2507,6 +2516,7 @@ mod tests {
 
         // Create data row with different alignments
         let left_cell = Cell {
+            spreadsheet_source: None,
             content: vec![Paragraph::with_text("L")],
             nested_tables: Vec::new(),
             col_span: 1,
@@ -2519,6 +2529,7 @@ mod tests {
         };
 
         let center_cell = Cell {
+            spreadsheet_source: None,
             content: vec![Paragraph::with_text("C")],
             nested_tables: Vec::new(),
             col_span: 1,
@@ -2531,6 +2542,7 @@ mod tests {
         };
 
         let right_cell = Cell {
+            spreadsheet_source: None,
             content: vec![Paragraph::with_text("R")],
             nested_tables: Vec::new(),
             col_span: 1,
@@ -2644,6 +2656,7 @@ mod tests {
         table.add_row(Row {
             cells: vec![
                 Cell {
+                    spreadsheet_source: None,
                     content: vec![Paragraph::with_text("A")],
                     nested_tables: vec![],
                     col_span: 1,
@@ -2655,6 +2668,7 @@ mod tests {
                     background_image: None,
                 },
                 Cell {
+                    spreadsheet_source: None,
                     content: vec![Paragraph::with_text("B")],
                     nested_tables: vec![],
                     col_span: 1,
@@ -2672,6 +2686,7 @@ mod tests {
         // Row 1: [C] (A's continuation is absent from cells, C is at col 1)
         table.add_row(Row {
             cells: vec![Cell {
+                spreadsheet_source: None,
                 content: vec![Paragraph::with_text("C")],
                 nested_tables: vec![],
                 col_span: 1,

@@ -1,5 +1,4 @@
 use super::*;
-
 impl XlsxParser {
     pub(super) fn build_sheet_cell(
         &self,
@@ -30,6 +29,7 @@ impl XlsxParser {
         }
 
         Ok(Cell {
+            spreadsheet_source: None,
             content: vec![Paragraph {
                 runs,
                 ..Default::default()
@@ -44,5 +44,4 @@ impl XlsxParser {
             background_image: None,
         })
     }
-
 }

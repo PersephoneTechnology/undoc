@@ -51,6 +51,7 @@ mod tests {
 
     fn cell(text: &str, col_span: u32, row_span: u32) -> Cell {
         Cell {
+            spreadsheet_source: None,
             col_span,
             row_span,
             ..Cell::with_text(text)

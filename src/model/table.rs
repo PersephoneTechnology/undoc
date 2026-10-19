@@ -27,6 +27,9 @@ pub enum VerticalAlignment {
 /// A cell in a table.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Cell {
+    /// Original spreadsheet address; absent for non-spreadsheet or uncertain sources.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spreadsheet_source: Option<super::SpreadsheetCellSource>,
     /// Cell content (paragraphs)
     #[serde(default)]
     pub content: Vec<Paragraph>,
@@ -197,6 +200,9 @@ impl Row {
 /// A table.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Table {
+    /// Original spreadsheet address; absent for non-spreadsheet or uncertain sources.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spreadsheet_source: Option<super::SpreadsheetTableSource>,
     /// Original XML node, absent for synthetic or unsupported content.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<super::XmlSourceLocation>,
@@ -355,6 +361,7 @@ mod tests {
 
     fn spanned(text: &str, col_span: u32, row_span: u32) -> Cell {
         Cell {
+            spreadsheet_source: None,
             col_span,
             row_span,
             ..Cell::with_text(text)
@@ -397,6 +404,7 @@ mod tests {
         let mut table = Table::new();
         table.add_row(Row {
             cells: vec![Cell {
+                spreadsheet_source: None,
                 col_span: u32::MAX,
                 ..Cell::with_text("wide")
             }],
@@ -527,6 +535,7 @@ mod tests {
 
     fn spanning(text: &str, row_span: u32, col_span: u32) -> Cell {
         Cell {
+            spreadsheet_source: None,
             row_span,
             col_span,
             ..Cell::with_text(text)

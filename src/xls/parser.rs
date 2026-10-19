@@ -648,6 +648,7 @@ fn read_sheet(stream: &[u8], offset: usize, globals: &Globals) -> Result<crate::
             ));
         }
         let cell = Cell {
+            spreadsheet_source: None,
             content: vec![Paragraph {
                 runs,
                 ..Default::default()

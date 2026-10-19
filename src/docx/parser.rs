@@ -1558,6 +1558,7 @@ impl DocxParser {
                                     deduplicate_paragraph_block(paragraphs)
                                 };
                                 let cell = Cell {
+                                    spreadsheet_source: None,
                                     content,
                                     nested_tables: std::mem::take(&mut cell_nested_tables),
                                     col_span,
