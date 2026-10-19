@@ -8,8 +8,10 @@ mod document;
 mod paragraph;
 mod resource;
 mod table;
+mod source;
 
 pub use document::*;
 pub use paragraph::*;
 pub use resource::*;
 pub use table::*;
+pub use source::*;

@@ -1,78 +1,14 @@
 # Persephone undoc fork
 
-This repository is a fork of [iyulab/undoc](https://github.com/iyulab/undoc), maintained
-by [PersephoneTechnology](https://github.com/PersephoneTechnology). Its purpose is to
-add source provenance for Word search results, citations, and read-only rich previews
-in Persephone. It is not a separate document parser or an official upstream release.
+This fork of [iyulab/undoc](https://github.com/iyulab/undoc) adds optional XML
+source provenance for Persephone's Word search and citation navigation.
 
-## Status and baseline
+The official baseline is **0.27.0**, commit
+`8dd4cdd7d77399a191b0122cc154e4c7a5ea1e40`. The provenance implementation is published on
+`codex/word-source-provenance` for consumption through a full commit SHA. Product migration from 0.5.4 is a separate validation step.
 
-- **Upstream:** [iyulab/undoc](https://github.com/iyulab/undoc), a library for extracting content from Office documents.
-- **Fork:** [PersephoneTechnology/undoc](https://github.com/PersephoneTechnology/undoc).
-- **Extension baseline:** upstream **0.27.0**, commit [`8dd4cdd7d77399a191b0122cc154e4c7a5ea1e40`](https://github.com/iyulab/undoc/commit/8dd4cdd7d77399a191b0122cc154e4c7a5ea1e40) (`Release 0.27.0`).
-- The source-provenance extension will be developed on this 0.27.0 baseline, rather than on 0.5.4. Future upstream upgrades are separate, explicit maintenance decisions.
-- **Current status:** only fork documentation has been added. Source metadata, parser extensions, and product integration are not implemented yet.
-- Persephone currently consumes `undoc = "=0.5.4"`. Adopting this fork requires an explicit migration to the 0.27.0-based implementation, including API adaptation and extraction/index compatibility validation. Creating this fork does not change the product dependency.
-
-## Why this fork exists
-
-Persephone uses undoc to extract content for search and citations, and a separate
-File Viewer to display Word documents with their original formatting. An extracted
-block number identifies content in the extraction output; it is not a paragraph
-number in the rich preview.
-
-The current extraction output does not retain the original XML node address for
-each content block. Empty paragraphs, tables, text boxes, and repeated text make
-display order or text matching insufficient for reliable navigation.
-
-The relevant upstream 0.27.0 models and DOCX interfaces have been inspected and do
-not provide the required block-to-source mapping. This fork will preserve optional
-source metadata during parsing so the product can establish:
-
-```text
-Document identity and revision + extracted block
-    -> original document part and structural address
-    -> corresponding rich-preview fragments
-    -> scrolling and highlighting
-```
-
-This work builds on the existing parser. It does not introduce a second text
-extraction implementation or require undoc to depend on a particular viewer.
-
-## Planned extension scope
-
-- Preserve optional provenance on paragraphs, tables, and paragraphs within tables: the XML part, the original structural path, and the original paragraph ID when available.
-- Track paths in the original XML, including empty elements and wrapper elements. Identify elements by namespace, and never infer source addresses from extracted block numbers.
-- Keep provenance independent of the viewer. File Viewer DOM markers, screen coordinates, and highlighting belong to the product adapter, not undoc.
-- Bind source addresses to document identity and revision in the product. Structural addresses are not guaranteed to remain stable after document edits.
-- Leave provenance unavailable for derived content whose original source cannot be identified reliably. Do not guess using text similarity.
-- Add metadata without changing extraction text, block order, or Markdown behavior relative to the **0.27.0 baseline**. Verify this with regression tests.
-- Assess migration from the product's 0.5.4 output separately. Metadata-only changes relative to 0.27.0 do not establish compatibility with existing 0.5.4 search indexes.
-- Keep this work focused on read-only navigation. Editing features, unrelated parser changes, and unrelated dependency upgrades are outside its scope.
-
-These are planned capabilities, not features already delivered by this fork.
-
-## Maintenance and consumption
-
-1. Preserve upstream Git history, copyright notices, and licenses. Maintain the provenance extension and its tests as focused, reviewable commits, with the upstream baseline and local changes documented.
-2. Start the extension from the pinned 0.27.0 baseline. Record subsequent baseline updates explicitly; do not silently follow upstream `main`.
-3. When integrating into the product, use Cargo's native `[patch.crates-io]` mechanism to select a full commit SHA from this fork and commit the updated `Cargo.lock`. The product's dependency constraint must be updated to accept the 0.27.0-based package; the existing `=0.5.4` constraint cannot select it.
-4. Verify that Cargo resolves the intended fork commit. Do not modify developers' global Cargo caches or rely on an automatically moving branch.
-5. Before adopting upstream changes or integrating the fork, validate API compatibility, extracted text, block numbering and order, Markdown output, and source navigation. Define any required index rebuild or migration from observed behavior rather than assuming old indexes remain compatible.
-6. Navigation validation must cover repeated and adjacent identical paragraphs, empty paragraphs, tables, pagination, and zoom. Unsupported or ambiguous structures must report that exact navigation is unavailable.
-7. General-purpose provenance support may be contributed upstream. Once equivalent upstream support is available and compatibility is verified, the product can remove the fork override and return to a published dependency. No provenance-related upstream pull request has been submitted yet.
-
-Cargo's `[patch]` replaces a dependency source; it does not apply a diff file. This
-approach does not require a custom build-time patch application system.
-
-## License and upstream documentation
-
-This fork retains the upstream MIT license and copyright notices. See [LICENSE](LICENSE).
-
-The original upstream README is preserved below. Its installation commands, package
-versions, release links, and feature descriptions refer to the upstream project;
-they do not imply that Persephone has published customized packages or completed
-the provenance extension described above.
+See [PERSEPHONE.md](PERSEPHONE.md) for the authoritative difference inventory,
+configuration, tests, and upgrade record. Upstream documentation follows below.
 
 ---
 

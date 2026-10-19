@@ -197,6 +197,10 @@ impl Row {
 /// A table.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Table {
+    /// Original XML node, absent for synthetic or unsupported content.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<super::XmlSourceLocation>,
+
     /// Rows in this table
     #[serde(default)]
     pub rows: Vec<Row>,

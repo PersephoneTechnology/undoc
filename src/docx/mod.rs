@@ -21,3 +21,5 @@ mod parser;
 pub(crate) mod styles;
 
 pub use parser::DocxParser;
+
+mod source;

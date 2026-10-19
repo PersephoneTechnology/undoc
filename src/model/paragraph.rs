@@ -326,6 +326,10 @@ pub enum ParagraphElement {
 /// A paragraph of text.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Paragraph {
+    /// Original XML node, absent for synthetic or unsupported content.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<super::XmlSourceLocation>,
+
     /// Text runs in this paragraph
     #[serde(default)]
     pub runs: Vec<TextRun>,

@@ -13,6 +13,7 @@ use crate::model::{
 
 use super::numbering::NumberingMap;
 use super::styles::StyleMap;
+use super::source::{SourceContext, SourceTracker};
 
 /// Parser for DOCX (Word) documents.
 pub struct DocxParser {
@@ -233,6 +234,9 @@ impl DocxParser {
         // This fixes the "DATE OF BIRTH" -> "DATEOFBIRTH" bug (GitHub Issue #2)
         reader.config_mut().trim_text(false);
 
+        let mut sources = SourceTracker::new(None);
+        let mut paragraph_source = None;
+        let mut table_source = None;
         let mut buf = Vec::new();
         let mut in_body = false;
         let mut paragraph_xml = String::new();
@@ -245,7 +249,9 @@ impl DocxParser {
         let mut footer_rids: Vec<String> = Vec::new();
 
         loop {
-            match reader.read_event_into(&mut buf) {
+            let event = reader.read_event_into(&mut buf);
+            if let Ok(ref event) = event { sources.observe(event); }
+            match event {
                 Ok(quick_xml::events::Event::Start(ref e)) => {
                     let name = e.name();
                     match name.as_ref() {
@@ -253,6 +259,7 @@ impl DocxParser {
                             in_body = true;
                         }
                         "w:p" if in_body && table_depth == 0 && !in_paragraph => {
+                            paragraph_source = sources.context().location();
                             in_paragraph = true;
                             paragraph_xml.clear();
                             paragraph_xml.push_str("<w:p");
@@ -272,11 +279,12 @@ impl DocxParser {
                         // captured separately) and emits a spurious empty table.
                         "w:tbl" if in_body && !in_paragraph => {
                             if table_depth == 0 {
+                                table_source = Some(sources.context());
                                 // Start collecting table XML
                                 table_xml.clear();
                             }
                             table_depth += 1;
-                            table_xml.push_str("<w:tbl>");
+                            push_start_tag(&mut table_xml, e);
                         }
                         _ => {
                             if in_paragraph {
@@ -389,7 +397,8 @@ impl DocxParser {
                             paragraph_xml.push_str("</w:p>");
                             // Extract text box paragraphs before parsing the main paragraph
                             let textbox_paras = self.extract_textbox_paragraphs(&paragraph_xml);
-                            if let Ok(para) = self.parse_paragraph(&paragraph_xml) {
+                            if let Ok(mut para) = self.parse_paragraph(&paragraph_xml) {
+                                para.source = paragraph_source.take();
                                 section.add_block(Block::Paragraph(para));
                             }
                             // Add text box paragraphs as separate blocks
@@ -403,7 +412,7 @@ impl DocxParser {
                             table_depth -= 1;
                             if table_depth == 0 {
                                 // Finished collecting outermost table - now parse it
-                                if let Ok(table) = self.parse_table(&table_xml) {
+                                if let Ok(table) = self.parse_table_with_source(&table_xml, table_source.take()) {
                                     section.add_block(Block::Table(table));
                                 }
                             }
@@ -1316,8 +1325,17 @@ impl DocxParser {
     /// Parse a table: its rows and cells, each cell's paragraphs read by [`Self::parse_paragraph`]
     /// -- the same reading the body's paragraphs get, links, tracked changes, notes and all -- and
     /// its nested tables recursively.
+    #[cfg(test)]
     fn parse_table(&mut self, xml: &str) -> Result<Table> {
+        self.parse_table_with_source(xml, None)
+    }
+
+    fn parse_table_with_source(&mut self, xml: &str, context: Option<SourceContext>) -> Result<Table> {
         let mut table = Table::new();
+        table.source = context.as_ref().and_then(SourceContext::location);
+        let mut sources = SourceTracker::new(context);
+        let mut paragraph_source = None;
+        let mut nested_source = None;
         let mut reader = crate::decode::reader_for(xml);
         // Don't trim text - preserve whitespace from xml:space="preserve" elements
         reader.config_mut().trim_text(false);
@@ -1350,7 +1368,9 @@ impl DocxParser {
         let mut nested_table_xml = String::new();
 
         loop {
-            match reader.read_event_into(&mut buf) {
+            let event = reader.read_event_into(&mut buf);
+            if let Ok(ref event) = event { sources.observe(event); }
+            match event {
                 Ok(quick_xml::events::Event::Start(ref e)) => {
                     let name = e.name();
 
@@ -1372,10 +1392,11 @@ impl DocxParser {
 
                     match name.as_ref() {
                         "w:tbl" if in_cell => {
+                            nested_source = Some(sources.context());
                             // Start collecting nested table
                             nested_table_depth = 1;
                             nested_table_xml.clear();
-                            nested_table_xml.push_str("<w:tbl>");
+                            push_start_tag(&mut nested_table_xml, e);
                         }
                         "w:tr" => {
                             in_row = true;
@@ -1398,6 +1419,7 @@ impl DocxParser {
                             in_tc_pr = true;
                         }
                         "w:p" if in_cell => {
+                            paragraph_source = sources.context().location();
                             in_paragraph = true;
                             para_depth = 0;
                             paragraph_xml.clear();
@@ -1474,7 +1496,7 @@ impl DocxParser {
                             if nested_table_depth == 0 {
                                 // Finished collecting nested table - parse recursively
                                 let nested_xml = std::mem::take(&mut nested_table_xml);
-                                if let Ok(nested_table) = self.parse_table(&nested_xml) {
+                                if let Ok(nested_table) = self.parse_table_with_source(&nested_xml, nested_source.take()) {
                                     cell_nested_tables.push(nested_table);
                                 }
                             }
@@ -1488,6 +1510,7 @@ impl DocxParser {
                             // Text boxes are pulled out first, as paragraphs of their own.
                             let textbox_paras = self.extract_textbox_paragraphs(&paragraph_xml);
                             if let Ok(mut para) = self.parse_paragraph(&paragraph_xml) {
+                                para.source = paragraph_source.take();
                                 // A cell's paragraphs are its content, not the document's
                                 // outline: a heading style does not make a heading in a cell.
                                 para.heading = crate::model::HeadingLevel::None;

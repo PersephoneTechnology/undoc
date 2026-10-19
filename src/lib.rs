@@ -110,6 +110,7 @@ pub use detect::detect_format_from_path;
 pub use detect::FormatType;
 pub use error::{Error, ErrorKind, Result};
 pub use model::{
+    XmlPathSegment, XmlSourceLocation,
     Block, Cell, CellAlignment, Document, HeadingLevel, ListInfo, ListType, Metadata, Paragraph,
     Resource, ResourceRole, ResourceType, Row, Section, Table, TextAlignment, TextRun, TextStyle,
 };
