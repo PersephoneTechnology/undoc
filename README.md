@@ -1,68 +1,78 @@
 # Persephone undoc fork
 
-本仓库是 [PersephoneTechnology](https://github.com/PersephoneTechnology) 维护的
-[iyulab/undoc](https://github.com/iyulab/undoc) fork，用于为 Persephone 的 Word
-搜索、引用与只读富预览增加原文来源定位能力。它不是另起炉灶的文档解析器，也不代表上游官方发布。
+This repository is a fork of [iyulab/undoc](https://github.com/iyulab/undoc), maintained
+by [PersephoneTechnology](https://github.com/PersephoneTechnology). Its purpose is to
+add source provenance for Word search results, citations, and read-only rich previews
+in Persephone. It is not a separate document parser or an official upstream release.
 
-## 当前状态与基线
+## Status and baseline
 
-- 上游项目：[`iyulab/undoc`](https://github.com/iyulab/undoc)，Office 文档内容抽取库。
-- 本仓库：[`PersephoneTechnology/undoc`](https://github.com/PersephoneTechnology/undoc)。
-- 创建 fork 时的上游基线：[`8dd4cdd7d77399a191b0122cc154e4c7a5ea1e40`](https://github.com/iyulab/undoc/commit/8dd4cdd7d77399a191b0122cc154e4c7a5ea1e40)，提交说明为 `Release 0.27.0`。
-- 当前 `main` 继承该上游代码；本次仅增加 fork 说明，**尚未实现来源字段、定位扩展或产品接入**。
-- Persephone 产品当前固定使用 `undoc = "=0.5.4"`。来源扩展计划从该版本的准确上游基线建立独立维护分支，再记录分支、基线 SHA、修改清单及验证结果；本次没有创建该维护分支，也没有把产品升级到 0.27.0。
+- **Upstream:** [iyulab/undoc](https://github.com/iyulab/undoc), a library for extracting content from Office documents.
+- **Fork:** [PersephoneTechnology/undoc](https://github.com/PersephoneTechnology/undoc).
+- **Extension baseline:** upstream **0.27.0**, commit [`8dd4cdd7d77399a191b0122cc154e4c7a5ea1e40`](https://github.com/iyulab/undoc/commit/8dd4cdd7d77399a191b0122cc154e4c7a5ea1e40) (`Release 0.27.0`).
+- The source-provenance extension will be developed on this 0.27.0 baseline, rather than on 0.5.4. Future upstream upgrades are separate, explicit maintenance decisions.
+- **Current status:** only fork documentation has been added. Source metadata, parser extensions, and product integration are not implemented yet.
+- Persephone currently consumes `undoc = "=0.5.4"`. Adopting this fork requires an explicit migration to the 0.27.0-based implementation, including API adaptation and extraction/index compatibility validation. Creating this fork does not change the product dependency.
 
-## 为什么维护这个 fork
+## Why this fork exists
 
-Persephone 使用 undoc 抽取文档内容供搜索和引用使用，使用独立的 File Viewer 展示
-Word 原始排版。搜索命中的内容块编号只属于抽取结果，不能直接作为富预览中的段落编号。
+Persephone uses undoc to extract content for search and citations, and a separate
+File Viewer to display Word documents with their original formatting. An extracted
+block number identifies content in the extraction output; it is not a paragraph
+number in the rich preview.
 
-例如，`word/document.xml` 中某个段落可能在抽取时与空段落、表格、文本框等一起
-被转换成内容块。当前使用的 undoc 输出没有保留这个内容块对应的原始 XML 节点地址，
-导致搜索结果与富预览缺少可靠的对应关系。相同文字可以在文档中出现多次，因此不能依靠
-文字相似度或显示顺序冒充精确定位。
+The current extraction output does not retain the original XML node address for
+each content block. Empty paragraphs, tables, text boxes, and repeated text make
+display order or text matching insufficient for reliable navigation.
 
-本 fork 的目的，是在现有解析过程中保留可选的来源元数据，让产品能够建立：
+The relevant upstream 0.27.0 models and DOCX interfaces have been inspected and do
+not provide the required block-to-source mapping. This fork will preserve optional
+source metadata during parsing so the product can establish:
 
 ```text
-文档身份与版本 + 搜索内容块
-    → 原文件中的部件与结构地址
-    → 富预览中的对应显示片段
-    → 滚动和高亮
+Document identity and revision + extracted block
+    -> original document part and structural address
+    -> corresponding rich-preview fragments
+    -> scrolling and highlighting
 ```
 
-已检查的上游 0.27.0 相关模型与 DOCX 接口仍未提供这条来源映射，因此仅升级版本不能
-完成该目标。升级还涉及抽取语义和模型兼容性，应与来源扩展分别验证。
+This work builds on the existing parser. It does not introduce a second text
+extraction implementation or require undoc to depend on a particular viewer.
 
-## 计划中的扩展边界
+## Planned extension scope
 
-- 给可定位的段落、表格及表内段落保留可选来源：XML 部件、原始节点结构路径，以及原文件存在时的段落 ID。
-- 路径按原始 XML 结构记录，包含空节点和包装层级，按命名空间识别元素；不从抽取块编号反推地址。
-- 来源数据独立于查看器。undoc 不输出 File Viewer 的 DOM 标记、屏幕坐标或高亮逻辑；产品适配层负责转换。
-- 文件身份和版本由产品层绑定；结构地址不承诺跨文档编辑保持不变。
-- 无法可靠确定来源的衍生内容允许没有来源，不通过文字匹配猜测。
-- 目标是只增加元数据，保持现有抽取文本、块顺序及 Markdown 行为。是否兼容旧索引必须通过回归验证，不能仅凭字段可选就宣称兼容。
-- 不在这项扩展中引入编辑器能力，不顺带升级解析依赖或改变其他 Office 格式的行为。
+- Preserve optional provenance on paragraphs, tables, and paragraphs within tables: the XML part, the original structural path, and the original paragraph ID when available.
+- Track paths in the original XML, including empty elements and wrapper elements. Identify elements by namespace, and never infer source addresses from extracted block numbers.
+- Keep provenance independent of the viewer. File Viewer DOM markers, screen coordinates, and highlighting belong to the product adapter, not undoc.
+- Bind source addresses to document identity and revision in the product. Structural addresses are not guaranteed to remain stable after document edits.
+- Leave provenance unavailable for derived content whose original source cannot be identified reliably. Do not guess using text similarity.
+- Add metadata without changing extraction text, block order, or Markdown behavior relative to the **0.27.0 baseline**. Verify this with regression tests.
+- Assess migration from the product's 0.5.4 output separately. Metadata-only changes relative to 0.27.0 do not establish compatibility with existing 0.5.4 search indexes.
+- Keep this work focused on read-only navigation. Editing features, unrelated parser changes, and unrelated dependency upgrades are outside its scope.
 
-以上是维护目标，**不是当前已交付的功能清单**。
+These are planned capabilities, not features already delivered by this fork.
 
-## 维护与消费方式
+## Maintenance and consumption
 
-1. 保留上游 Git 历史、版权和许可证；将来源扩展及必要测试维护为独立、可审查的提交，记录上游基线与差异。
-2. 产品接入时使用 Cargo 原生 `[patch.crates-io]` 指向本 fork 的完整提交 SHA，并提交更新后的 `Cargo.lock`；不跟随可移动分支自动升级。
-3. fork 的包版本必须满足产品依赖约束，并确认 Cargo 实际解析到目标提交；不直接修改开发者的 Cargo 缓存。
-4. 合并上游更新是显式维护动作。升级前检查 API 变化，并验证抽取文本、块编号、顺序、Markdown 及来源定位；不假设旧索引天然兼容。
-5. 定位验证应覆盖重复与相邻相同段落、空段落、表格，以及分页和缩放后的显示片段；未覆盖或不支持的结构明确返回无法定位。
-6. 适合上游的通用来源能力可贡献回上游。上游提供等价能力且兼容验证通过后，产品可移除 fork 覆盖并恢复正式发布依赖。当前尚未提交相关上游 PR。
+1. Preserve upstream Git history, copyright notices, and licenses. Maintain the provenance extension and its tests as focused, reviewable commits, with the upstream baseline and local changes documented.
+2. Start the extension from the pinned 0.27.0 baseline. Record subsequent baseline updates explicitly; do not silently follow upstream `main`.
+3. When integrating into the product, use Cargo's native `[patch.crates-io]` mechanism to select a full commit SHA from this fork and commit the updated `Cargo.lock`. The product's dependency constraint must be updated to accept the 0.27.0-based package; the existing `=0.5.4` constraint cannot select it.
+4. Verify that Cargo resolves the intended fork commit. Do not modify developers' global Cargo caches or rely on an automatically moving branch.
+5. Before adopting upstream changes or integrating the fork, validate API compatibility, extracted text, block numbering and order, Markdown output, and source navigation. Define any required index rebuild or migration from observed behavior rather than assuming old indexes remain compatible.
+6. Navigation validation must cover repeated and adjacent identical paragraphs, empty paragraphs, tables, pagination, and zoom. Unsupported or ambiguous structures must report that exact navigation is unavailable.
+7. General-purpose provenance support may be contributed upstream. Once equivalent upstream support is available and compatibility is verified, the product can remove the fork override and return to a published dependency. No provenance-related upstream pull request has been submitted yet.
 
-Cargo 的 `[patch]` 是替换依赖来源，不是自动应用 diff 文件。本项目不需要为此自建构建前打补丁系统。
+Cargo's `[patch]` replaces a dependency source; it does not apply a diff file. This
+approach does not require a custom build-time patch application system.
 
-## 许可证与上游文档
+## License and upstream documentation
 
-本 fork 继续遵循上游 MIT 许可证，见 [LICENSE](LICENSE)。上游版权声明予以保留。
+This fork retains the upstream MIT license and copyright notices. See [LICENSE](LICENSE).
 
-下面保留原始上游 README。其安装命令、包版本、发布链接及功能说明对应上游项目，
-不表示 Persephone 已发布定制包或已完成上述来源扩展。
+The original upstream README is preserved below. Its installation commands, package
+versions, release links, and feature descriptions refer to the upstream project;
+they do not imply that Persephone has published customized packages or completed
+the provenance extension described above.
 
 ---
 
