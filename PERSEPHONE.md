@@ -26,8 +26,10 @@ features and default RenderOptions. No new product format is enabled by this wor
 
 Use Git's diff against the full official baseline SHA above. Do not maintain a
 second patch inventory. Every effective source difference must map to an active
-entry here. Preserve upstream history and the MIT license. Separate necessary
-refactoring, feature commits, and upstream merges when commits are authorized.
+entry here. Preserve upstream history and the MIT license. Keep this fork patch-only: do not
+restructure upstream modules, move existing methods, or change existing extraction
+behavior merely to support additive provenance. File length alone is not a reason
+to refactor this dependency. Any exception needs explicit user approval.
 
 ## Upgrade record
 
@@ -60,9 +62,9 @@ The consuming product records the full published SHA in Cargo.toml and Cargo.loc
 
 | ID | Reason | Modules | PR | Validation | Status |
 | --- | --- | --- | --- | --- | --- |
-| UD-003 | Retain worksheet identity and original cell/merge coordinates separately from display spans | model/spreadsheet_source, model/table, sheet, xlsx/parser, xlsx/cell; mechanical Cell literals in consumers | codex/xlsx-source-provenance (no upstream PR) | xlsx_source; source_conflicts_never_produce_coordinates; xlsx_merged_header_end_to_end_test | active |
+| UD-003 | Retain worksheet identity and original cell/merge coordinates separately from display spans | model/spreadsheet_source, model/table, sheet, xlsx/parser; mechanical Cell literals in consumers | codex/xlsx-source-provenance (no upstream PR) | xlsx_source; source_conflicts_never_produce_coordinates; xlsx_merged_header_end_to_end_test | active |
 
-`build_sheet_cell` was extracted from the existing oversized XLSX parser without changing behavior.
+`build_sheet_cell` remains in its original XLSX parser location and retains its original visibility.
 Missing addresses keep no source; conflicting/duplicate coordinates invalidate the sheet's sources.
 All fields are optional and omitted from serialization when absent. XLS does not enable source tracking.
 
@@ -81,3 +83,16 @@ cover normalization, repeated occurrences, UTF-8 and cross-segment offsets.
 - No upstream merge, version upgrade, history rewrite or product commit is included.
 - Product integration and native platform qualification remain separately tracked in
   `specs/changes/xlsx-search-source-navigation/spec.md` in financial-agent.
+
+### Correction: patch-only maintenance (2026-10-19)
+
+At the user's explicit request, undo the structural extraction introduced by
+`f93768c`: restore `build_sheet_cell` to `src/xlsx/parser.rs`, remove `xlsx/cell.rs`
+and its module declaration, and restore the existing model module/export order.
+Retain only the necessary additive XLSX provenance patch and compatibility tests.
+The original method body is unchanged except for initializing the new optional
+source field to None. This correction is a new commit; published history is retained.
+
+Validation passed: restored method matches `43259db` byte-for-byte after removing
+the single optional-field initialization. XLSX source (2), merged-header (6),
+Word provenance (5), and source-conflict (1) cases passed; git diff --check passed.
