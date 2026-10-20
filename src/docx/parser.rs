@@ -2,6 +2,9 @@
 
 use std::collections::HashMap;
 
+#[path = "textbox.rs"]
+mod textbox;
+
 use crate::charts;
 use crate::container::OoxmlContainer;
 use crate::error::{Error, Result};
@@ -259,7 +262,7 @@ impl DocxParser {
                             in_body = true;
                         }
                         "w:p" if in_body && table_depth == 0 && !in_paragraph => {
-                            paragraph_source = sources.context().location();
+                            paragraph_source = Some(sources.context());
                             in_paragraph = true;
                             paragraph_xml.clear();
                             paragraph_xml.push_str("<w:p");
@@ -396,9 +399,12 @@ impl DocxParser {
                         "w:p" if in_paragraph && table_depth == 0 && para_depth == 0 => {
                             paragraph_xml.push_str("</w:p>");
                             // Extract text box paragraphs before parsing the main paragraph
-                            let textbox_paras = self.extract_textbox_paragraphs(&paragraph_xml);
+                            let textbox_paras = self.extract_textbox_paragraphs(
+                                &paragraph_xml, paragraph_source.clone(),
+                            );
                             if let Ok(mut para) = self.parse_paragraph(&paragraph_xml) {
-                                para.source = paragraph_source.take();
+                                para.source = paragraph_source.take()
+                                    .as_ref().and_then(SourceContext::location);
                                 section.add_block(Block::Paragraph(para));
                             }
                             // Add text box paragraphs as separate blocks
@@ -572,7 +578,7 @@ impl DocxParser {
                         "w:p" if in_paragraph && para_depth == 0 => {
                             paragraph_xml.push_str("</w:p>");
                             // Text boxes are pulled out first, as separate paragraphs.
-                            let textbox_paras = self.extract_textbox_paragraphs(&paragraph_xml);
+                            let textbox_paras = self.extract_textbox_paragraphs(&paragraph_xml, None);
                             if let Ok(para) = self.parse_paragraph(&paragraph_xml) {
                                 // Skip blank lines (e.g. spacer paragraphs), but keep
                                 // internal whitespace intact — consistent with the body parser.
@@ -1140,124 +1146,6 @@ impl DocxParser {
         Ok(para)
     }
 
-    /// Extract paragraphs from `w:txbxContent` elements (text boxes/shapes).
-    ///
-    /// Text boxes in DOCX appear inside `w:drawing` or `mc:AlternateContent` elements.
-    /// This method finds all `w:txbxContent` sections (skipping those inside `mc:Fallback`
-    /// to avoid duplication) and parses the inner `<w:p>` elements as regular paragraphs.
-    fn extract_textbox_paragraphs(&mut self, xml: &str) -> Vec<Paragraph> {
-        let mut paragraphs = Vec::new();
-        let mut reader = crate::decode::reader_for(xml);
-        reader.config_mut().trim_text(false);
-
-        let mut buf = Vec::new();
-        let mut mc_fallback_depth: u32 = 0;
-        let mut txbx_content_depth: u32 = 0;
-        let mut in_txbx_para = false;
-        let mut txbx_para_xml = String::new();
-        let mut txbx_para_depth: u32 = 0; // Track nested elements inside the text box <w:p>
-
-        loop {
-            match reader.read_event_into(&mut buf) {
-                Ok(quick_xml::events::Event::Start(ref e)) => {
-                    let name = e.name();
-                    match name.as_ref() {
-                        "mc:Fallback" => {
-                            mc_fallback_depth += 1;
-                        }
-                        "w:txbxContent" if mc_fallback_depth == 0 => {
-                            txbx_content_depth += 1;
-                        }
-                        "w:p" if txbx_content_depth > 0 && !in_txbx_para => {
-                            in_txbx_para = true;
-                            txbx_para_depth = 0;
-                            txbx_para_xml.clear();
-                            txbx_para_xml.push_str("<w:p");
-                            for attr in e.attributes().flatten() {
-                                txbx_para_xml.push_str(&format!(
-                                    " {}=\"{}\"",
-                                    attr.key.as_ref(),
-                                    attr.value.as_ref()
-                                ));
-                            }
-                            txbx_para_xml.push('>');
-                        }
-                        _ if in_txbx_para => {
-                            txbx_para_depth += 1;
-                            txbx_para_xml.push('<');
-                            txbx_para_xml.push_str(name.as_ref());
-                            for attr in e.attributes().flatten() {
-                                txbx_para_xml.push_str(&format!(
-                                    " {}=\"{}\"",
-                                    attr.key.as_ref(),
-                                    attr.value.as_ref()
-                                ));
-                            }
-                            txbx_para_xml.push('>');
-                        }
-                        _ => {}
-                    }
-                }
-                Ok(quick_xml::events::Event::Empty(ref e)) if in_txbx_para => {
-                    let name = e.name();
-                    txbx_para_xml.push('<');
-                    txbx_para_xml.push_str(name.as_ref());
-                    for attr in e.attributes().flatten() {
-                        txbx_para_xml.push_str(&format!(
-                            " {}=\"{}\"",
-                            attr.key.as_ref(),
-                            attr.value.as_ref()
-                        ));
-                    }
-                    txbx_para_xml.push_str("/>");
-                }
-                Ok(quick_xml::events::Event::Text(ref e)) if in_txbx_para => {
-                    let text = crate::decode::decode_text_lossy(e);
-                    txbx_para_xml.push_str(&escape_xml(&text));
-                }
-                // Re-serialized buffer (parsed a second time): re-emit the resolved
-                // entity through escape_xml so the second pass decodes it again.
-                Ok(quick_xml::events::Event::GeneralRef(ref e)) if in_txbx_para => {
-                    let decoded = crate::decode::resolve_general_ref(e);
-                    txbx_para_xml.push_str(&escape_xml(&decoded));
-                }
-                Ok(quick_xml::events::Event::End(ref e)) => {
-                    let name = e.name();
-                    match name.as_ref() {
-                        "mc:Fallback" if mc_fallback_depth > 0 => {
-                            mc_fallback_depth -= 1;
-                        }
-                        "w:txbxContent" if txbx_content_depth > 0 => {
-                            txbx_content_depth -= 1;
-                        }
-                        "w:p" if in_txbx_para && txbx_para_depth == 0 => {
-                            txbx_para_xml.push_str("</w:p>");
-                            if let Ok(para) = self.parse_paragraph(&txbx_para_xml) {
-                                if !para.plain_text().is_empty() {
-                                    paragraphs.push(para);
-                                }
-                            }
-                            in_txbx_para = false;
-                        }
-                        _ if in_txbx_para => {
-                            txbx_para_depth = txbx_para_depth.saturating_sub(1);
-                            txbx_para_xml.push_str("</");
-                            txbx_para_xml.push_str(name.as_ref());
-                            txbx_para_xml.push('>');
-                        }
-                        _ => {}
-                    }
-                }
-                Ok(quick_xml::events::Event::Eof) => break,
-                Err(_) => break,
-                _ => {}
-            }
-            buf.clear();
-        }
-
-        paragraphs
-    }
-
     /// Parse list info from paragraph XML.
     fn parse_list_info(&mut self, xml: &str) -> Option<ListInfo> {
         let mut reader = crate::decode::reader_for(xml);
@@ -1419,7 +1307,7 @@ impl DocxParser {
                             in_tc_pr = true;
                         }
                         "w:p" if in_cell => {
-                            paragraph_source = sources.context().location();
+                            paragraph_source = Some(sources.context());
                             in_paragraph = true;
                             para_depth = 0;
                             paragraph_xml.clear();
@@ -1508,9 +1396,12 @@ impl DocxParser {
                             paragraph_xml.push_str("</w:p>");
                             in_paragraph = false;
                             // Text boxes are pulled out first, as paragraphs of their own.
-                            let textbox_paras = self.extract_textbox_paragraphs(&paragraph_xml);
+                            let textbox_paras = self.extract_textbox_paragraphs(
+                                &paragraph_xml, paragraph_source.clone(),
+                            );
                             if let Ok(mut para) = self.parse_paragraph(&paragraph_xml) {
-                                para.source = paragraph_source.take();
+                                para.source = paragraph_source.take()
+                                    .as_ref().and_then(SourceContext::location);
                                 // A cell's paragraphs are its content, not the document's
                                 // outline: a heading style does not make a heading in a cell.
                                 para.heading = crate::model::HeadingLevel::None;

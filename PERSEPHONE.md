@@ -20,6 +20,7 @@ features and default RenderOptions. No new product format is enabled by this wor
 | --- | --- | --- | --- | --- | --- |
 | UD-001 | Optional structural XML provenance without changing text semantics | model/source, model/paragraph, model/table | codex/word-source-provenance | source_provenance_test | active |
 | UD-002 | Capture source paths during DOCX parsing, including filtered nodes and table descendants | docx/source, docx/parser | codex/word-source-provenance | source_provenance_test; official/fork model and Markdown comparison (5 fixtures) | active |
+| UD-004 | Add original textbox provenance with unchanged extraction | docx/parser, docx/textbox | pending | textbox_source_test; six-sample model/Markdown comparison | active |
 | DOC-001 | Explain fork purpose and maintenance | README, PERSEPHONE | Existing README commits; codex/word-source-provenance | Manual review | active |
 
 ## Reviewing the effective difference
@@ -96,3 +97,18 @@ source field to None. This correction is a new commit; published history is reta
 Validation passed: restored method matches `43259db` byte-for-byte after removing
 the single optional-field initialization. XLSX source (2), merged-header (6),
 Word provenance (5), and source-conflict (1) cases passed; git diff --check passed.
+
+## Textbox source increment (2026-10-20, pending publication)
+
+Base: `8b52d1339129b419d940dfff72969808b5ed45b3`; retain the existing XLSX provenance changes.
+UD-002 now also carries the original SourceContext through textbox extraction in body and table paragraphs.
+Header/footer calls retain no body source. Text, duplicate handling, branch choice and ordering are unchanged.
+The product's approved `docx-textbox-source-navigation` design explicitly authorizes one focused exception
+to the patch-only relocation rule: the existing textbox extraction method is moved into `docx/textbox.rs`,
+a child of the parser module, with no new parser abstraction or unrelated module restructuring.
+
+Validation: 3 textbox provenance tests, 5 existing provenance tests, 59 DOCX parser tests,
+and 2 XLSX provenance tests passed. Full parsed model (excluding source) and Markdown are equal to
+this base on six DOCX samples, including the local reported document, decisions, basic, mapping,
+structural and large. Product FileSystem search-to-source integration passed with a temporary Cargo override.
+The fork working changes are not yet published; no product revision should point to a nonexistent SHA.
