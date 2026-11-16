@@ -211,19 +211,30 @@ fn classify_container_magic<R: Read + Seek>(reader: &mut R) -> Result<Option<For
 /// an unrecognised CFB, are reported as unsupported — naming the format where the directory
 /// shows which it is, which is what the header proved.
 fn classify_cfb_container<R: Read + Seek>(reader: &mut R) -> Result<FormatType> {
-    let container = match cfb::CompoundFile::open(reader) {
-        Ok(container) => container,
-        // A CFB header whose directory will not parse. Still an Office container, still
-        // unopenable; guessing which kind would claim more than was established.
-        Err(_) => {
-            return Err(Error::UnsupportedFormat(
-                "OLE/CFB container whose directory could not be read — a legacy binary \
-                 Office format (.doc/.xls/.ppt) or an ECMA-376 encrypted document"
-                    .to_string(),
-            ))
-        }
+    // Avoid a full input copy on the normal reader path.
+    if let Ok(container) = cfb::CompoundFile::open(&mut *reader) {
+        return classify_open_cfb(&container);
+    }
+    let unsupported = || {
+        Error::UnsupportedFormat(
+            "OLE/CFB container whose directory could not be read — a legacy binary \
+         Office format (.doc/.xls/.ppt) or an ECMA-376 encrypted document"
+                .to_string(),
+        )
     };
+    reader.seek(std::io::SeekFrom::Start(0))?;
+    let mut bytes = Vec::new();
+    reader.read_to_end(&mut bytes)?;
+    let container = crate::cfb_compat::open(&bytes).map_err(|_| unsupported())?;
+    // Only XLS parsing opts into this compatibility behavior.
+    match classify_open_cfb(&container) {
+        Ok(FormatType::Xls) => Ok(FormatType::Xls),
+        Err(Error::Encrypted) => Err(Error::Encrypted),
+        _ => Err(unsupported()),
+    }
+}
 
+fn classify_open_cfb<R: Read + Seek>(container: &cfb::CompoundFile<R>) -> Result<FormatType> {
     if container.exists(ENCRYPTED_PACKAGE_STREAM) {
         return Err(Error::Encrypted);
     }

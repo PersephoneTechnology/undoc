@@ -112,3 +112,17 @@ and 2 XLSX provenance tests passed. Full parsed model (excluding source) and Mar
 this base on six DOCX samples, including the local reported document, decisions, basic, mapping,
 structural and large. Product FileSystem search-to-source integration passed with a temporary Cargo override.
 The fork working changes are not yet published; no product revision should point to a nonexistent SHA.
+
+## XLS surplus FAT padding compatibility (2026-11-16)
+
+Base: `64e3e504ed84dfced17fe8b84f8ab6ca82a1de3f`, the product's pinned undoc 0.27.0 fork. Branch: `codex/xls-cfb-padding`. The user explicitly authorized maintaining this change in the existing undoc fork without forking cfb. cfb remains the unchanged registry 0.15.0 dependency. Publication was explicitly authorized on 2026-11-16: commit and push the repair branch based on the pinned revision, update the product SHA, and do not merge main.
+
+| ID | Reason | Modules | PR | Validation | Status |
+| --- | --- | --- | --- | --- | --- |
+| UD-005 | Read XLS containers whose unused FAT slots use ENDOFCHAIN instead of FREESECT | cfb_compat, detect, xls/parser | none | xls_cfb_padding_test; cfb_compat tests; existing XLS/detection/encryption regressions; product parser-worker and search tests | validated; authorized for publication |
+
+Normal CFB opening remains the first path. Only after failure does the shared helper verify the physical sector layout and FAT/DIFAT addressing, replace surplus ENDOFCHAIN entries in a memory copy, then retry the ordinary cfb API. Entries for physical sectors and all original file bytes remain unchanged. Both 512/4096-byte sectors and extended DIFAT addressing are covered. Unknown surplus values, truncated files, bad FAT addresses and damaged live chains are not repaired. Detection and XLS parsing share the compatibility behavior; DOC/PPT parsing remains unchanged. Encrypted-package classification is preserved.
+
+The original project-authored Chinese workbook failed before this change and passes afterward through byte, reader and file-path entry points. Regression tests cover content, unchanged input, malformed data and encrypted packages. Product tests use the original fixture in worker extraction, full-text/knowledge search and schema-8 cache recovery.
+
+No new public API, dependency, data model or persistent storage. Normal input has no full-input copy; malformed candidate input adds bounded-by-input working memory. Keep this a small fork patch. Re-run the compatibility and rejection tests on each undoc/cfb upgrade. When released cfb supports this case with equivalent rejection guarantees, upgrade it and remove the workaround; upstream submission requires a separate user request.
